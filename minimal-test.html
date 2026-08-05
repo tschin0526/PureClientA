@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>最小化测试</title>
+    <link rel="stylesheet" href="components/FloatingWindow/FloatingWindow.css">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background: #f0f0f0;
+        }
+        .test-btn {
+            padding: 10px 20px;
+            margin: 10px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        .test-btn:hover {
+            background: #0069d9;
+        }
+        .debug-info {
+            margin: 20px 0;
+            padding: 10px;
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>最小化测试</h1>
+    <button class="test-btn" onclick="testShowTradeDetail()">测试showTradeDetail</button>
+    
+    <div class="debug-info" id="debugInfo">
+        调试信息将显示在这里...
+    </div>
+    
+    <script>
+        // 模拟DebugUtils
+        window.DebugUtils = {
+            showDebugInfo: function(message) {
+                log('DEBUG: ' + message);
+            }
+        };
+        
+        // 模拟STOCKS
+        window.STOCKS = [
+            { name: '台积电', type: 'tA', market: '台股' },
+            { name: '苹果', type: 'cETF', market: '美股' }
+        ];
+        
+        // 模拟tradesDB
+        window.tradesDB = {
+            delete: function(id) {
+                return Promise.resolve();
+            },
+            save: function(trade) {
+                return Promise.resolve();
+            }
+        };
+        
+        // 模拟loadTrades和applyFilters
+        window.loadTrades = function() {
+            return Promise.resolve();
+        };
+        window.applyFilters = function() {
+            return Promise.resolve();
+        };
+        
+        function log(message) {
+            console.log(message);
+            const debugInfo = document.getElementById('debugInfo');
+            debugInfo.innerHTML += new Date().toLocaleTimeString() + ': ' + message + '\n';
+            debugInfo.scrollTop = debugInfo.scrollHeight;
+        }
+        
+        function testShowTradeDetail() {
+            log('开始测试showTradeDetail函数');
+            
+            try {
+                log('window.showTradeDetail: ' + typeof window.showTradeDetail);
+                
+                const testTrade = {
+                    id: 'test-123',
+                    stock: '台积电',
+                    side: 'buy',
+                    qty: 100,
+                    price: 500,
+                    amount: 50000,
+                    date: '2026-02-05',
+                    createdAt: new Date().toISOString(),
+                    market: '台股'
+                };
+                
+                log('测试交易对象: ' + JSON.stringify(testTrade));
+                
+                if (window.showTradeDetail) {
+                    window.showTradeDetail(testTrade);
+                    log('showTradeDetail调用成功');
+                } else {
+                    log('showTradeDetail未定义');
+                }
+                
+            } catch (error) {
+                log('测试失败: ' + error.message);
+                log('错误堆栈: ' + error.stack);
+            }
+        }
+        
+        // 页面加载完成后日志
+        window.onload = function() {
+            log('页面加载完成');
+            log('FloatingWindow: ' + typeof FloatingWindow);
+            log('window.showTradeDetail: ' + typeof window.showTradeDetail);
+        };
+    </script>
+    
+    <script src="components/FloatingWindow/FloatingWindow.js"></script>
+    <script src="bubbleDetail.js"></script>
+</body>
+</html>

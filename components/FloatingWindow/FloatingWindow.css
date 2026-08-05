@@ -1,0 +1,534 @@
+/**
+ * 悬浮视窗组件样式
+ */
+
+/* 悬浮视窗容器 */
+.floating-window {
+  position: fixed;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  /* z-index 已移至 JS/React 中动态管理，支持点击置顶功能 */
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+/* 视窗内容 */
+.floating-content {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 视窗头部 */
+.floating-header {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 8.4px 16px;
+  background: linear-gradient(135deg, #d0e8ff 0%, #a8c8ff 100%);
+  color: #0369a1;
+  cursor: grab;
+  user-select: none;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.floating-header-left {
+  position: absolute;
+  left: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.floating-header:active {
+  cursor: grabbing;
+}
+
+/* 视窗标题 */
+.floating-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1;
+  padding-left: 40px;  /* 给标题添加左边距，避免被关闭按钮覆盖 */
+}
+
+.floating-title::after {
+  content: '';
+}
+
+/* 关闭按钮 - 放大一倍，参考MacBook风格 */
+.floating-close-btn {
+  background: #ff5f57;
+  border: none;
+  color: rgba(0, 0, 0, 0.3);
+  font-size: 20px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0 !important;
+  margin: 0 !important;
+  border-radius: 50% !important;
+  transition: all 0.2s;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 32px !important;
+  height: 32px !important;
+  min-width: 32px !important;
+  min-height: 32px !important;
+  max-width: 32px !important;
+  max-height: 32px !important;
+  flex-shrink: 0 !important;
+  overflow: hidden !important;
+  position: relative !important;
+  line-height: 1 !important;
+}
+
+.floating-close-btn:hover {
+  background: #ff6b62;
+  color: rgba(0, 0, 0, 0.7);
+}
+
+/* 视窗主体 */
+.floating-body {
+  padding: 0;
+  overflow-y: auto;
+  overflow-x: auto;
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* 滚动条样式 - 支持垂直和水平滚动 */
+.floating-body::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.floating-body::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 5px;
+}
+
+.floating-body::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 5px;
+}
+
+.floating-body::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.4);
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .floating-window {
+    width: 90% !important;
+    left: 5% !important;
+    right: 5% !important;
+    top: 20px !important;
+    max-height: 80vh !important;
+  }
+}
+
+/* 动画效果已移除，避免与JavaScript设置的transform冲突 */
+/* @keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.floating-window {
+  animation: fadeIn 0.3s ease;
+} */
+
+/* ==================== 关闭动画效果集合 ==================== */
+
+/* 动画1：旋转缩小（原有效果） */
+@keyframes closeRotate {
+  0% {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0) rotate(720deg);
+  }
+}
+
+.floating-window.closing-rotate {
+  animation: closeRotate 1s ease-in forwards;
+  transform-origin: center center;
+}
+
+/* 动画2：九宫格四面八方散开 */
+@keyframes closeExplode {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+    clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%);
+  }
+  30% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.3) translate(var(--explode-x, 0), var(--explode-y, 0));
+  }
+}
+
+.floating-window.closing-explode {
+  animation: closeExplode 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+  transform-origin: center center;
+}
+
+/* 九宫格碎片效果 - 使用伪元素创建碎片 */
+.floating-window.closing-grid::before,
+.floating-window.closing-grid::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+}
+
+/* 动画3：黑洞吸入效果 */
+@keyframes closeBlackhole {
+  0% {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+    filter: blur(0px);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(0.5) rotate(180deg);
+    filter: blur(2px);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0) rotate(360deg);
+    filter: blur(10px);
+  }
+}
+
+.floating-window.closing-blackhole {
+  animation: closeBlackhole 0.8s ease-in forwards;
+  transform-origin: center center;
+}
+
+/* 动画4：折叠消失 */
+@keyframes closeFold {
+  0% {
+    opacity: 1;
+    transform: perspective(1000px) rotateX(0deg) rotateY(0deg) scale(1);
+  }
+  50% {
+    opacity: 0.8;
+    transform: perspective(1000px) rotateX(90deg) rotateY(0deg) scale(0.8);
+  }
+  100% {
+    opacity: 0;
+    transform: perspective(1000px) rotateX(90deg) rotateY(90deg) scale(0);
+  }
+}
+
+.floating-window.closing-fold {
+  animation: closeFold 0.8s ease-in forwards;
+  transform-origin: center top;
+}
+
+/* 动画5：闪电消散 */
+@keyframes closeLightning {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+    filter: brightness(1);
+  }
+  10% {
+    opacity: 1;
+    filter: brightness(3);
+  }
+  20% {
+    opacity: 0.8;
+    filter: brightness(0.5);
+  }
+  30% {
+    opacity: 1;
+    filter: brightness(4);
+  }
+  40% {
+    opacity: 0.6;
+    filter: brightness(0.3);
+  }
+  50% {
+    opacity: 1;
+    filter: brightness(5);
+  }
+  60% {
+    opacity: 0.4;
+    filter: brightness(0.2);
+  }
+  70% {
+    opacity: 0.8;
+    filter: brightness(3);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0);
+    filter: brightness(0);
+  }
+}
+
+.floating-window.closing-lightning {
+  animation: closeLightning 0.6s ease-out forwards;
+  transform-origin: center center;
+}
+
+/* 动画6：像素化消失 */
+@keyframes closePixelate {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+    filter: blur(0px);
+  }
+  25% {
+    opacity: 0.8;
+    transform: scale(0.95);
+    filter: blur(1px);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(0.85);
+    filter: blur(3px);
+  }
+  75% {
+    opacity: 0.2;
+    transform: scale(0.6);
+    filter: blur(6px);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.3);
+    filter: blur(15px);
+  }
+}
+
+.floating-window.closing-pixelate {
+  animation: closePixelate 0.7s ease-in forwards;
+  transform-origin: center center;
+}
+
+/* 动画7：翻转消失 */
+@keyframes closeFlip {
+  0% {
+    opacity: 1;
+    transform: perspective(1000px) rotateY(0deg) scale(1);
+  }
+  50% {
+    opacity: 0.8;
+    transform: perspective(1000px) rotateY(90deg) scale(0.8);
+  }
+  100% {
+    opacity: 0;
+    transform: perspective(1000px) rotateY(180deg) scale(0);
+  }
+}
+
+.floating-window.closing-flip {
+  animation: closeFlip 0.7s ease-in forwards;
+  transform-origin: center center;
+}
+
+/* 动画8：弹跳消失 */
+@keyframes closeBounce {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  20% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+  40% {
+    opacity: 0.8;
+    transform: scale(0.9);
+  }
+  60% {
+    opacity: 0.6;
+    transform: scale(1.1);
+  }
+  80% {
+    opacity: 0.3;
+    transform: scale(0.7);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0);
+  }
+}
+
+.floating-window.closing-bounce {
+  animation: closeBounce 0.8s ease-out forwards;
+  transform-origin: center center;
+}
+
+/* 动画9：漩涡消失 */
+@keyframes closeSwirl {
+  0% {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+    filter: blur(0px);
+  }
+  33% {
+    opacity: 0.7;
+    transform: scale(0.8) rotate(120deg);
+    filter: blur(1px);
+  }
+  66% {
+    opacity: 0.4;
+    transform: scale(0.5) rotate(240deg);
+    filter: blur(3px);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0) rotate(360deg);
+    filter: blur(8px);
+  }
+}
+
+.floating-window.closing-swirl {
+  animation: closeSwirl 0.9s ease-in forwards;
+  transform-origin: center center;
+}
+
+/* 动画10：爆炸粒子效果 */
+@keyframes closeExplosion {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+    clip-path: circle(100% at 50% 50%);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scale(1.2);
+    clip-path: circle(50% at 50% 50%);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.5);
+    clip-path: circle(0% at 50% 50%);
+  }
+}
+
+.floating-window.closing-explosion {
+  animation: closeExplosion 0.6s ease-out forwards;
+  transform-origin: center center;
+}
+
+/* 动画11：波浪消失 */
+@keyframes closeWave {
+  0% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+    clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%);
+  }
+  25% {
+    opacity: 0.9;
+    clip-path: polygon(0 10%, 100% 0, 100% 90%, 0 100%);
+  }
+  50% {
+    opacity: 0.6;
+    clip-path: polygon(0 30%, 100% 10%, 100% 70%, 0 90%);
+  }
+  75% {
+    opacity: 0.3;
+    clip-path: polygon(0 60%, 100% 40%, 100% 60%, 0 70%);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.5) translateY(-50px);
+    clip-path: polygon(0 50%, 100% 50%, 100% 50%, 0 50%);
+  }
+}
+
+.floating-window.closing-wave {
+  animation: closeWave 0.8s ease-in forwards;
+  transform-origin: center center;
+}
+
+/* 动画12：幽灵消失 */
+@keyframes closeGhost {
+  0% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+    filter: blur(0px) brightness(1);
+  }
+  30% {
+    opacity: 0.8;
+    transform: scale(1.05) translateY(-10px);
+    filter: blur(0px) brightness(1.2);
+  }
+  60% {
+    opacity: 0.5;
+    transform: scale(0.9) translateY(-30px);
+    filter: blur(2px) brightness(0.8);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.5) translateY(-80px);
+    filter: blur(10px) brightness(0);
+  }
+}
+
+.floating-window.closing-ghost {
+  animation: closeGhost 1s ease-out forwards;
+  transform-origin: center bottom;
+}
+
+/* 保留原有的 closing 类以兼容 */
+.floating-window.closing {
+  animation: closeRotate 1s ease-in forwards;
+  transform-origin: center center;
+}
+
+/* 打印样式 */
+@media print {
+  .floating-window {
+    position: static !important;
+    box-shadow: none;
+    border: none;
+    backdrop-filter: none;
+    background: white;
+    border-radius: 0;
+  }
+
+  .floating-header {
+    padding: 4px 8px;
+    background: #3b82f6;
+  }
+
+  .floating-title {
+    font-size: 12px;
+  }
+
+  .floating-close-btn {
+    display: none;
+  }
+
+  .floating-body {
+    overflow: visible;
+  }
+}

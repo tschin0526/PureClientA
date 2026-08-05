@@ -1,0 +1,45 @@
+/**
+ * 股票信息插件样式
+ */
+
+.stock-info-container {
+  padding: 20px;
+  overflow-y: auto;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+.stock-info-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.stock-info-table thead th {
+  border: 1px solid #dee2e6;
+  padding: 12px;
+  text-align: left;
+  background-color: #f8f9fa;
+  font-weight: bold;
+}
+
+.stock-info-table tbody td {
+  border: 1px solid #dee2e6;
+  padding: 10px;
+}
+
+.stock-info-label {
+  font-weight: normal;
+}
+
+.stock-info-value {
+  text-align: right;
+  font-weight: bold;
+}
+
+.stock-info-value-positive {
+  color: #16a34a;
+}
+
+.stock-info-value-negative {
+  color: #dc2626;
+}

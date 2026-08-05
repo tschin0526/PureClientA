@@ -1,0 +1,475 @@
+/**
+ * 版本历史查看器插件 React 版 (Version History Plugin React)
+ * 
+ * 功能：读取内嵌的版本历史数据，使用 FloatingWindowReact 显示
+ * 数据来源：VERSION.md（编译时转换为静态数据）
+ * 更新方式：运行 update_version_history.sh 脚本从 VERSION.md 重新生成
+ * 
+ * @version 1.0.3(85)
+ * @date 2026-04-17
+ */
+
+var VersionHistoryPlugin = (function() {
+  
+  // 版本历史数据（从 VERSION.md 自动生成）
+  var VERSION_DATA = `# 版本历史
+
+## 版本格式说明
+
+采用业界通用的语义化版本号格式：\`主版本.次版本.修订版本(构建号)\`
+
+- **主版本 (Major)**：重大架构变更、不兼容的API修改
+- **次版本 (Minor)**：新增功能、向下兼容的功能性修改
+- **修订版本 (Patch)**：Bug修复、小幅优化
+- **构建号 (Build)**：每次代码修改递增，用于精确追踪
+
+<br />
+
+### ✨ 1.6.0(1) - 2026-06-09
+
+- **重大升级：AI智能协作助手服务卡片模式整合**
+- **🎯 核心功能：服务卡片模式完整实现**
+  - 服务卡片面板：集成 Electron API 爬虫卡片选择器
+  - 下拉式卡片选择框，支持搜索过滤（按名称/URL/分类）
+  - Electron API 连接状态实时监测（每5秒自动检测）
+  - "🌐 浏览网页" 功能：调用爬虫 API 获取网页数据
+  - 爬取结果自动格式化并显示在聊天消息区域
+  - 支持超链接、表格、文本、图片、按钮五种数据类型展示
+- **🎯 核心功能：整合发送按钮（模式智能切换）**
+  - 大模型模式：绿色圆形按钮 "↑"（发送消息）
+  - 服务卡片模式 + 已选卡片：紫色椭圆按钮 "🌐 浏览网页"
+  - 服务卡片模式 + 未选卡片：灰色禁用状态
+  - Ctrl+Enter / Cmd+Enter 快捷键支持两种模式
+- **🔧 技术实现**
+  - 新增 8 个 state 变量管理服务卡片状态
+  - 新增 \`useEffect\` 定时检查 Electron API 连接状态
+  - 新增 \`fetchServiceBookmarks()\` 获取爬虫卡片列表
+  - 新增 \`browseServiceCard()\` 调用爬虫 API
+  - 新增 \`formatServiceCardResult()\` 格式化爬取结果为 Markdown
+  - 发送按钮根据 \`currentMode\` 和 \`selectedServiceCard\` 动态渲染
+- **改动文件**：
+  - 修改：\`aiChatParserPlugin.js\`（新增约 300 行代码）
+
+###  1.5.0(45) - 2026-05-23
+
+- **重大升级：爬虫实验室重构与 Electron 集成**
+- **🎯 核心功能 1：简化爬虫实验室界面**
+  - 移除「爬取当前页面」和「内嵌浏览器模式」两个无用选项
+  - 仅保留「 Electron API」模式，专注核心功能
+  - 界面更简洁，用户体验更佳
+- ** 核心功能 2：Electron 万能爬虫应用**
+  - 新增独立桌面爬虫应用（electron-crawler/）
+  - 内置 HTTP API 服务器（端口 3000），供网页版调用
+  - 无跨域限制，可访问任何网站
+  - 支持数据导出（JSON/CSV）
+- **🎯 核心功能 3：API 服务器控制**
+  - 自动启动，可手动停止/重启
+  - 实时状态显示（运行中/已停止）
+  - API 端点：http://localhost:3000/api/crawl?url=目标网址
+- **🔧 技术整合**
+  - 整合原 crawler-proxy-server 功能到 Electron 应用
+  - 爬虫实验室通过 API 调用获取数据
+  - 双应用无缝协作
+- **改动文件**：
+  - 新增：electron-crawler/（完整的 Electron 爬虫应用）
+  - 修改：crawlerLabPlugin.js（简化界面，增强 API 功能）
+  - 修改：globalSearchApiLabPlugin.js（全网搜索 API 实验室）
+
+### ✨ 1.4.0(44) - 2026-05-22
+
+- **新增功能**：JSON 数据浏览器表格视图支持自由拖拽调整列宽 (JSONDataBrowser.js v2.2)
+- **🎯 核心功能：可拖拽列宽（类 Excel 体验）**
+  - 每个列标题右边缘添加 6px 拖拽手柄，鼠标悬停时高亮显示
+  - 拖拽手柄实时调整列宽（最小 40px），表头与表体同步变化
+  - 主表格（对象数组视图）和嵌套表格（对象属性中嵌套对象数组）均支持独立调整
+- ** 技术实现**
+  - 新增 \`useRef\` 追踪拖拽状态（起始位置 + 起始宽度）
+  - 新增 \`columnWidthOverrides\` state 存储用户自定义列宽覆盖
+  - \`useEffect\` 注册全局 \`mousemove\`/\`mouseup\` 事件实现流畅拖拽
+  - \`getColWidth\` 函数统一管理默认列宽与用户覆盖列宽的融合
+  - 嵌套表格使用 \`parentKey::colKey\` 命名空间区分不同嵌套表的列宽
+- **改动文件**：
+  - 修改：\`JSONDataBrowser.js\`（约 80 行新增/修改）
+
+### ✨ 1.3.7(43) - 2026-05-19
+
+- **新增功能**：AI 聊天助手自动重试机制 (aiChatParserPlugin.js v4.1)
+- **🎯 核心功能：智能错误重试**
+  - 自动检测可重试错误（429 Too Many Requests、5xx 服务器错误）
+  - 智能识别业务错误码（智谱API: 1305/1306/1307/1308/1309/1310）
+  - 指数退避策略：首次等待 2 秒，后续递增（2s → 4s → 6s → 8s → 10s）
+  - 重试上限：**10 次**，超时自动终止并提示用户
+  - 重试过程实时显示进度（"重试中...第 3/10 次"）
+- **🔧 技术实现**
+  - 新增 \`retryWithBackoff()\` 函数封装重试逻辑
+  - \`useRef\` 追踪重试计数器和定时器 ID
+  - 自动识别错误类型（HTTP 状态码 + 业务错误码）
+  - 不可重试错误（400/401/403）直接抛出，不进入重试流程
+- **改动文件**：
+  - 修改：\`aiChatParserPlugin.js\`（新增约 120 行重试逻辑）
+
+### ✨ 1.3.6(42) - 2026-05-18
+
+- **新增功能**：AI 聊天助手支持多图片上传 (aiChatParserPlugin.js v4.0)
+- **🎯 核心功能：多图片上传与预览**
+  - 支持同时上传多张图片（不限制数量）
+  - 图片预览区采用横向滚动布局，支持删除单张图片
+  - 上传按钮：📎 图标 + 文字提示
+  - 图片缩略图：固定高度 60px，保持原始宽高比
+  - 删除按钮：红色 "✕" 悬停显示
+- **🔧 技术实现**
+  - \`images\` state 从单对象改为数组 \`[]\`
+  - \`handleFiles()\` 支持多文件遍历读取
+  - 图片预览区使用 \`overflow-x: auto\` 实现横向滚动
+  - \`send()\` 函数将图片数组批量传递给 AI 模型
+- **改动文件**：
+  - 修改：\`aiChatParserPlugin.js\`（约 80 行新增/修改）
+
+### ✨ 1.3.5(41) - 2026-05-17
+
+- **新增功能**：AI 聊天助手支持图片上传 (aiChatParserPlugin.js v3.5)
+- **🎯 核心功能：单图片上传与预览**
+  - 新增 📎 图片上传按钮（输入框左侧）
+  - 支持 PNG/JPG/GIF/WebP 格式
+  - 图片预览区：固定高度 60px，居中显示
+  - 图片可删除（点击 "✕" 按钮）
+- **🔧 技术实现**
+  - \`FileReader\` 读取图片为 Base64 数据
+  - 图片数据直接嵌入 API 请求的 \`content\` 数组
+  - 智谱GLM/火山方舟/通义千问三平台兼容
+- **改动文件**：
+  - 修改：\`aiChatParserPlugin.js\`（约 60 行新增）
+
+###  1.3.4(40) - 2026-05-16
+
+- **新增功能**：AI 聊天助手消息历史浏览 (aiChatParserPlugin.js v3.4)
+- **🎯 核心功能：↑↓ 键浏览历史消息**
+  - ↑ 键：向上浏览更早的历史消息（文字 + 图片）
+  - ↓ 键：向下浏览更新的历史消息（或回到当前输入）
+  - 状态提示：显示当前浏览位置（"📜 历史消息 3/10 + 2张图片"）
+  - 恢复当前输入：清空文字和图片，回到编辑状态
+- **🔧 技术实现**
+  - \`messageHistory\` state 存储历史消息数组
+  - \`historyIndex\` state 追踪当前浏览位置（-1 表示不在浏览模式）
+  - 每次发送消息后自动追加到历史数组
+  - 图片数据完整保存（Base64 格式）
+- **改动文件**：
+  - 修改：\`aiChatParserPlugin.js\`（约 100 行新增）
+
+### ✨ 1.3.3(39) - 2026-05-15
+
+- **新增功能**：AI 聊天助手联网搜索开关 (aiChatParserPlugin.js v3.3)
+- **🎯 核心功能：联网搜索选项**
+  - 输入框下方新增 "🔗 联网搜索" 复选框
+  - 默认关闭，用户可手动开启
+  - 状态持久化到 localStorage
+  - 开启后：API 请求携带 \`enable_web_search: true\` 参数
+- **🔧 技术实现**
+  - \`webSearchEnabled\` state（从 localStorage 读取默认值）
+  - \`useEffect\` 监听开关变化，自动保存到 localStorage
+  - \`send()\` 函数根据开关动态添加请求参数
+- **改动文件**：
+  - 修改：\`aiChatParserPlugin.js\`（约 40 行新增）
+
+### ✨ 1.3.2(38) - 2026-05-14
+
+- **新增功能**：AI 聊天助手经济模式 (aiChatParserPlugin.js v3.2)
+- **🎯 核心功能：节省 Token 消耗**
+  - 输入框下方新增 "💰 节省模式" 复选框
+  - 默认开启，用户可手动关闭
+  - 经济模式：截断历史消息，只保留最近 3 轮对话
+  - 普通模式：保留完整历史消息（可能消耗更多 Token）
+  - 状态持久化到 localStorage
+- **🔧 技术实现**
+  - \`economyMode\` state（从 localStorage 读取默认值）
+  - \`buildMessages()\` 函数根据模式动态截断历史
+  - 经济模式：\`messages.slice(-6)\`（3 轮对话 = 6 条消息）
+  - 普通模式：\`messages\`（完整历史）
+- **改动文件**：
+  - 修改：\`aiChatParserPlugin.js\`（约 50 行新增）
+
+###  1.3.1(37) - 2026-05-13
+
+- **新增功能**：AI 聊天助手 Prompt 模板选择器 (aiChatParserPlugin.js v3.1)
+- **🎯 核心功能：预设 Prompt 快速选择**
+  - 输入框左侧新增 " Prompt" 按钮
+  - 点击弹出下拉菜单，显示所有预设 Prompt 模板
+  - 支持搜索过滤（按名称/内容）
+  - 选中后自动填入输入框
+  - 默认提供 5 个常用 Prompt 模板
+- **🔧 技术实现**
+  - \`promptTemplates\` state 存储模板数组
+  - \`showPromptSelector\` state 控制下拉菜单显示
+  - \`localStorage\` 持久化用户自定义模板
+  - 下拉菜单支持滚动、搜索、一键填充
+- **改动文件**：
+  - 修改：\`aiChatParserPlugin.js\`（约 150 行新增）
+
+### ✨ 1.3.0(36) - 2026-05-12
+
+- **新增功能**：AI 聊天助手模型版本选择器 (aiChatParserPlugin.js v3.0)
+- **🎯 核心功能：模型版本切换**
+  - 头部新增 4 个信息标签：模型提供商、模型版本、API Key 名称、设置
+  - 模型版本标签可点击，弹出下拉菜单选择版本
+  - 支持 3 大平台：智谱GLM、火山方舟、通义千问
+  - 每个平台提供多个模型版本可选
+  - 选择后自动保存到 localStorage
+- ** 技术实现**
+  - \`showModelSelector\` state 控制下拉菜单显示
+  - \`zhipuModelVersion\` / \`fangzhouModelVersion\` / \`qwenModelVersion\` 存储各平台版本
+  - \`localStorage\` 持久化模型选择
+  - 下拉菜单动态渲染各平台模型列表
+- **改动文件**：
+  - 修改：\`aiChatParserPlugin.js\`（约 200 行新增）
+
+### ✨ 1.2.0(35) - 2026-05-11
+
+- **新增功能**：AI 聊天助手设置菜单 (aiChatParserPlugin.js v2.5)
+- ** 核心功能：设置下拉菜单**
+  - 头部新增 ⚙️ 设置按钮
+  - 点击弹出设置菜单，包含以下选项：
+    - 🤖 AI 开关：控制 AI 功能启用/禁用（默认开启）
+    - 💾 数据浏览器：打开 IndexedDB 数据浏览器查看历史记录
+    - 🗑️ 清空历史：清空所有聊天历史记录
+    - ❓ 帮助：显示快捷键说明
+- **🔧 技术实现**
+  - \`showSettingsMenu\` state 控制设置菜单显示
+  - 菜单外点击自动关闭（\`useEffect\` 监听全局点击）
+  - 每个菜单项对应独立功能函数
+- **改动文件**：
+  - 修改：\`aiChatParserPlugin.js\`（约 100 行新增）
+
+### ✨ 1.1.0(34) - 2026-05-10
+
+- **新增功能**：AI 聊天助手 IndexedDB 历史记录 (aiChatParserPlugin.js v2.0)
+- **🎯 核心功能：聊天记录持久化**
+  - 使用 IndexedDB 存储聊天记录（无大小限制）
+  - 每次交互保存两条记录：用户请求 + AI 响应
+  - 支持数据浏览器查看所有历史记录
+  - 自动加载历史记录（应用启动时）
+  - 支持清空历史功能
+- **🔧 技术实现**
+  - \`aiChatDB.js\` 独立模块封装 IndexedDB 操作
+  - 数据结构：\`{ id, timestamp, type, modelProvider, modelName, apiKeyName, requestContent, responseContent }\`
+  - \`saveRequestToDB()\` / \`saveResponseToDB()\` 保存记录
+  - \`loadHistoryFromDB()\` 加载历史记录到聊天界面
+  - \`openDataBrowser()\` 打开数据浏览器窗口
+- **改动文件**：
+  - 新增：\`aiChatDB.js\`（IndexedDB 封装模块）
+  - 修改：\`aiChatParserPlugin.js\`（约 300 行新增）
+
+### ✨ 1.0.0(33) - 2026-05-09
+
+- **初始版本**：AI 聊天助手基础功能 (aiChatParserPlugin.js v1.0)
+- ** 核心功能**：
+  - 浮动窗口聊天界面（基于 FloatingWindowReact 组件）
+  - 支持 3 大 AI 平台：智谱GLM、火山方舟、通义千问
+  - 消息发送与接收（文字 + 图片）
+  - Markdown 渲染（支持代码高亮、表格、列表等）
+  - 加载状态动画（脉冲圆点 + 旋转加载图标）
+  - 消息复制功能（点击复制按钮）
+  - 响应式布局（消息区自适应高度）
+- **🔧 技术实现**：
+  - React + ReactDOM（从全局加载）
+  - FloatingWindowReact 组件封装浮动窗口逻辑
+  - \`fetch\` API 调用 AI 模型接口
+  - 流式响应处理（SSE 协议）
+  - \`localStorage\` 保存用户设置
+- **改动文件**：
+  - 新增：\`aiChatParserPlugin.js\`（初始版本）
+
+<br />
+
+## 升级规则
+
+- 日常小修改（样式调整、Bug 修复）：\`./update_version.sh\`（构建号 +1）
+- 功能新增/优化：\`./update_version.sh patch\`（修订版本 +1）
+- 重大功能升级：\`./update_version.sh minor\`（次版本 +1）
+- 架构级变更：\`./update_version.sh major\`（主版本 +1）
+`;
+
+  function markdownToHtml(md) {
+    var lines = md.split('\n');
+    var html = [];
+    var inList = false;
+    var inCodeBlock = false;
+    
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i];
+      
+      if (line.trim().startsWith('```')) {
+        if (inCodeBlock) {
+          html.push('</code></pre>');
+          inCodeBlock = false;
+        } else {
+          if (inList) { html.push('</ul>'); inList = false; }
+          html.push('<pre style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:12px;overflow-x:auto;font-size:13px;line-height:1.5;"><code>');
+          inCodeBlock = true;
+        }
+        continue;
+      }
+      
+      if (inCodeBlock) {
+        html.push(escapeHtml(line));
+        continue;
+      }
+      
+      var h3Match = line.match(/^### (.+)$/);
+      if (h3Match) {
+        if (inList) { html.push('</ul>'); inList = false; }
+        html.push('<h3 style="font-size:16px;font-weight:bold;color:#2563eb;margin:14px 0 8px;background:#eff6ff;padding:8px 12px;border-radius:6px;">' + h3Match[1] + '</h3>');
+        continue;
+      }
+      
+      var h2Match = line.match(/^## (.+)$/);
+      if (h2Match) {
+        if (inList) { html.push('</ul>'); inList = false; }
+        html.push('<h2 style="font-size:18px;font-weight:bold;color:#1f2937;margin:20px 0 12px;border-bottom:2px solid #e5e7eb;">' + h2Match[1] + '</h2>');
+        continue;
+      }
+      
+      var listMatch = line.match(/^- (.+)$/);
+      if (listMatch) {
+        if (!inList) {
+          html.push('<ul style="margin:0;padding-left:24px;font-size:14px;color:#374151;line-height:1.8;">');
+          inList = true;
+        }
+        var content = listMatch[1]
+          .replace(/\*\*(.+?)\*\*/g, '<strong style="color:$1">$1</strong>')
+          .replace(/`([^`]+)`/g, '<code style="background:#f1f5f9;padding:1px 4px;border-radius:3px;font-size:13px;color:#dc2626;">$1</code>')
+          .replace(/【新增】/g, '<span style="color:#059669;font-weight:bold;">【新增】</span>')
+          .replace(/【修改】/g, '<span style="color:#2563eb;font-weight:bold;">【修改】</span>')
+          .replace(/✅/g, '<span style="color:#10b981;">✅</span>')
+          .replace(/🎯/g, '🎯')
+          .replace(/📝/g, '📝')
+          .replace(/🏗️/g, '🏗️')
+          .replace(/✨/g, '✨')
+          .replace(/🔧/g, '🔧')
+          .replace(/💾/g, '💾')
+          .replace(/🆕/g, '🆕')
+          .replace(/🤖/g, '🤖')
+          .replace(/📦/g, '📦')
+          .replace(/📊/g, '📊')
+          .replace(/📝/g, '📝')
+          .replace(/🪄/g, '🪄')
+          .replace(/🔧/g, '🔧');
+        
+        content = content
+          .replace(/<strong style="color:(.+?)">(.+?)<\/strong>/g, '<strong style="color:#059669;">$2</strong>')
+          .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+        
+        html.push('<li style="margin:4px 0;">' + content + '</li>');
+        continue;
+      }
+      
+      if (inList && line.trim() === '') {
+        continue;
+      }
+      
+      if (inList) { html.push('</ul>'); inList = false; }
+      
+      if (line.trim() !== '') {
+        var pText = line
+          .replace(/`([^`]+)`/g, '<code style="background:#f1f5f9;padding:1px 4px;border-radius:3px;font-size:13px;color:#dc2626;">$1</code>');
+        html.push('<p style="margin:8px 0;font-size:14px;color:#374151;">' + pText + '</p>');
+      }
+    }
+    
+    if (inList) html.push('</ul>');
+    if (inCodeBlock) { html.push('</code></pre>'); }
+    
+    return html.join('\n');
+  }
+  
+  function escapeHtml(text) {
+    return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+  
+  // React 挂载容器与根实例
+  var reactRoot = null;
+  var reactContainer = null;
+
+  function ensureReactContainer() {
+    if (reactContainer) {
+      return reactContainer;
+    }
+    reactContainer = document.createElement('div');
+    reactContainer.id = 'version-history-plugin-react-container';
+    document.body.appendChild(reactContainer);
+    return reactContainer;
+  }
+
+  function cleanupReactContainer() {
+    if (reactRoot) {
+      try {
+        reactRoot.unmount();
+      } catch (e) {
+        console.warn('VersionHistoryPluginReact cleanup failed:', e);
+      }
+      reactRoot = null;
+    }
+    if (reactContainer && reactContainer.parentNode) {
+      reactContainer.parentNode.removeChild(reactContainer);
+      reactContainer = null;
+    }
+  }
+
+  function renderVersionHistoryWindow() {
+    if (typeof React === 'undefined' || typeof ReactDOM === 'undefined' || typeof FloatingWindowReact === 'undefined') {
+      console.error('VersionHistoryPluginReact: React / ReactDOM / FloatingWindowReact 未加载');
+      return;
+    }
+
+    var container = ensureReactContainer();
+    if (!reactRoot) {
+      reactRoot = ReactDOM.createRoot(container);
+    }
+
+    var contentElement = React.createElement('div', {
+      style: {
+        padding: '24px',
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+        lineHeight: '1.6'
+      },
+      dangerouslySetInnerHTML: { __html: markdownToHtml(VERSION_DATA) }
+    });
+
+    reactRoot.render(
+      React.createElement(FloatingWindowReact, {
+        title: '📦 版本历史',
+        sourceFile: 'versionHistoryPluginReact.js',
+        width: '750px',
+        height: '85vh',
+        draggable: true,
+        closeAnimation: 'fade',
+        onHide: function() {
+          cleanupReactContainer();
+        }
+      }, contentElement)
+    );
+  }
+
+  return {
+    show: function() {
+      renderVersionHistoryWindow();
+    },
+    
+    close: function() {
+      cleanupReactContainer();
+    },
+    
+    getLatestVersion: function() {
+      var match = VERSION_DATA.match(/(\d+\.\d+\.\d+\(\d+\))/);
+      return match ? match[1] : 'unknown';
+    }
+  };
+})();
+
+console.log('✅ VersionHistoryPluginReact 已加载，版本号按钮onclick可直接调用show()');
+
+(function() {
+  var el = document.getElementById('versionIndicator');
+  if (el) {
+    el.textContent = '📦 ' + VersionHistoryPlugin.getLatestVersion();
+  }
+})();

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="80" fill="#1e40af"/>
+  <text x="256" y="200" text-anchor="middle" font-size="140" font-weight="bold" fill="white" font-family="-apple-system, BlinkMacSystemFont, sans-serif">交易</text>
+  <text x="256" y="340" text-anchor="middle" font-size="100" font-weight="bold" fill="#93c5fd" font-family="-apple-system, BlinkMacSystemFont, sans-serif">记录</text>
+  <circle cx="420" cy="420" r="60" fill="#16a34a"/>
+  <path d="M395 420 L410 435 L445 400" stroke="white" stroke-width="14" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -1,0 +1,5541 @@
+/**
+ * 💬 AI 聊天助手 - 稳定生产版 v3.1 (2026-05-13)
+ * 
+ * 设计原则：
+ * 1. 使用最保守的语法（避免所有 ES6+ 特性）
+ * 2. 不使用模板字符串（反引号）
+ * 3. 不使用箭头函数
+ * 4. 不使用 const/let
+ * 5. 所有字符串用普通拼接
+ * 
+ * 这样可以确保在所有环境下都能正常运行
+ */
+
+(function() {
+  'use strict';
+
+  // =========================================================
+  // 第1步：依赖检查（带调试）
+  // =========================================================
+
+  if (!window.React || !window.ReactDOM) {
+    console.error('[AI-Chat] React 未加载');
+    return;
+  }
+
+  var React = window.React;
+  var ReactDOM = window.ReactDOM;
+
+  var createElement = React.createElement;
+  var useState = React.useState;
+  var useEffect = React.useEffect;
+  var useRef = React.useRef;
+
+  console.log('[AI-Chat] ✅ 所有依赖已加载');
+
+  // =========================================================
+  // 第2步：配色常量
+  // =========================================================
+
+  var GREEN = '#07c160';
+  var BUBBLE_USER = '#fef9c3';  // 科技感淡黄色 (amber-100)
+  var BG_COLOR = '#f0ebe0';     // 更淡的米白色背景
+  var TEXT_DARK = '#191919';
+
+  // =========================================================
+  // 第3步：工具函数
+  // =========================================================
+
+  function getTime() {
+    return new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  }
+
+  /**
+   * 🔗 解析文本中的 URL 并转换为可点击的超链接
+   * 支持的协议：http, https, ftp, ftps
+   * 返回：React 元素数组（文本 + <a> 标签）
+   */
+  function parseTextWithLinks(text) {
+    if (!text) return [];
+    if (typeof text === 'object' && text.text !== undefined) text = String(text.text);
+    if (typeof text !== 'string') text = String(text);
+
+    // URL 正则表达式（支持 http/https/ftp/ftps）
+    var urlRegex = /(https?:\/\/[^\s<>"{}|\\^`\[\]]+|ftps?:\/\/[^\s<>"{}|\\^`\[\]]+)/gi;
+
+    var parts = [];
+    var lastIndex = 0;
+    var match;
+    var urlIndex = 0;
+
+    while ((match = urlRegex.exec(text)) !== null) {
+      // 添加 URL 前面的普通文本
+      if (match.index > lastIndex) {
+        var normalText = text.substring(lastIndex, match.index);
+        parts.push(createElement('span', { key: 'text-' + urlIndex }, normalText));
+      }
+
+      // 添加可点击的 URL 链接
+      var url = match[0];
+      var displayUrl = url.length > 50 ? url.substring(0, 50) + '...' : url;
+      
+      parts.push(
+        createElement('a', {
+          key: 'link-' + urlIndex,
+          href: url,
+          target: '_blank',        // 在新标签页打开
+          rel: 'noopener noreferrer',  // 安全属性
+          onClick: function(e) {
+            e.stopPropagation();  // 阻止事件冒泡
+          },
+          style: {
+            color: '#2563eb',
+            textDecoration: 'underline',
+            cursor: 'pointer',
+            wordBreak: 'break-all',
+            fontWeight: 500,
+            transition: 'color 0.2s ease'
+          },
+          onMouseEnter: function(e) {
+            e.target.style.color = '#1d4ed8';
+            e.target.style.textDecoration = 'none';
+          },
+          onMouseLeave: function(e) {
+            e.target.style.color = '#2563eb';
+            e.target.style.textDecoration = 'underline';
+          }
+        }, displayUrl)
+      );
+
+      lastIndex = match.index + url.length;
+      urlIndex++;
+    }
+
+    // 添加剩余的普通文本
+    if (lastIndex < text.length) {
+      parts.push(createElement('span', { key: 'text-end' }, text.substring(lastIndex)));
+    }
+
+    // 如果没有找到任何 URL，返回原始文本
+    if (parts.length === 0) {
+      return [text];
+    }
+
+    return parts;
+  }
+
+  // ============================================================
+  // 🛠️ 三种显示模式共享工具函数
+  // ============================================================
+
+  /** 实体转义：< > & " '  →  &lt; &gt; &amp; &quot; &#39; */
+  function escapeHtml(text) {
+    var div = document.createElement('div');
+    div.textContent = text == null ? '' : text;
+    return div.innerHTML;
+  }
+
+  /** 清理纯文本空白：每行多余空格，保留换行；在时间戳前智能加换行 */
+  function cleanWhitespace(text) {
+    if (!text) return '';
+    var cleaned = String(text).replace(/&nbsp;/g, ' ')
+      .replace(/[\u00A0\u2000-\u200B\u202F\u205F\u3000]/g, ' ');
+    var lines = cleaned.split('\n').map(function (ln) {
+      return ln.replace(/\t/g, ' ').replace(/ {2,}/g, ' ');
+    });
+    var result = lines.join('\n').trim();
+    result = result.replace(/(\s+)(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})/g, '\n$2');
+    result = result.replace(/([^\n\d])(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})/g, '$1\n$2');
+    return result;
+  }
+
+  /** HTML 自动缩进：把挤成一团的 innerHTML 整理成可读的源码 */
+  /**
+   * 🧹 清理 HTML 源码用于显示（仅用于 HTML 模式）
+   * 移除 SVG 图标、script、style 等无关内容，只保留有意义的 HTML 结构
+   * 不影响 Markdown 模式！
+   */
+  function cleanHtmlSourceForDisplay(html) {
+    if (!html || html.length < 100) return html;
+
+    try {
+      var cleaned = html;
+
+      // 移除 <svg>...</svg> 标签及其内容（SVG图标数据）
+      cleaned = cleaned.replace(/<svg[\s\S]*?<\/svg>/gi, '');
+
+      // 移除 <script>...</script> 标签及其内容
+      cleaned = cleaned.replace(/<script[\s\S]*?<\/script>/gi, '');
+
+      // 移除 <style>...</style> 标签及其内容（保留内联 style 属性）
+      cleaned = cleaned.replace(/<style[\s\S]*?<\/style>/gi, '');
+
+      // 移除 <path ... /> 自闭合标签（残留的SVG路径）
+      cleaned = cleaned.replace(/<path[^>]*\/?>/gi, '');
+
+      // 如果清理后内容太短（<10%），返回原始HTML避免丢失重要信息
+      return (cleaned.length > html.length * 0.1) ? cleaned : html;
+    } catch (e) {
+      return html;
+    }
+  }
+
+  function formatHtml(html, indentSize) {
+    indentSize = indentSize || 2;
+    if (!html) return '';
+
+    try {
+      // 🆕 v9.9: 使用浏览器原生 DOMParser 格式化 HTML（与 DevTools 效果一致）
+      var parser = new DOMParser();
+      var doc = parser.parseFromString(html, 'text/html');
+
+        // 检查是否有解析错误
+      var parseErrors = doc.getElementsByTagName('parsererror');
+      if (parseErrors.length > 0) {
+        // 解析失败，回退到原始 HTML
+        return html;
+      }
+
+      // 递归格式化节点
+      function formatNode(node, depth) {
+        var indent = '  '.repeat(depth);
+        var result = '';
+
+        if (node.nodeType === Node.TEXT_NODE) {
+          // 文本节点：保留原始内容（不要合并空格！）
+          var text = node.textContent;
+          if (text.trim()) {
+            // 有实际内容的文本 - 保留原始空白（包括换行、缩进、多个空格）
+            // 只移除首尾纯空白行，但保留内部格式
+            result = text.replace(/^\n+|\n+$/g, '');
+          }
+          // 空文本返回空字符串
+          return result;
+        }
+
+        if (node.nodeType === Node.COMMENT_NODE) {
+          // 注释节点
+          return indent + '<!--' + node.textContent + '-->\n';
+        }
+
+        if (node.nodeType === Node.DOCUMENT_TYPE_NODE) {
+          // DOCTYPE 声明
+          return '<!DOCTYPE html>\n';
+        }
+
+        if (node.nodeType !== Node.ELEMENT_NODE) {
+          // 其他未知节点类型：忽略
+          return '';
+        }
+
+        // 元素节点
+        var tagName = node.tagName.toLowerCase();
+
+        // 自闭合标签列表
+        var voidElements = ['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
+                          'link', 'meta', 'param', 'source', 'track', 'wbr'];
+
+        if (voidElements.indexOf(tagName) !== -1) {
+          // 自闭合元素
+          var attrs = getAttributesString(node);
+          result = indent + '<' + tagName + attrs + ' />\n';
+        } else {
+          // 普通元素：开始标签 + 内容 + 结束标签
+          var attrs = getAttributesString(node);
+          result = indent + '<' + tagName + attrs + '>\n';
+
+          // 递归处理子节点
+          var childNodes = node.childNodes;
+          var hasBlockChild = false;
+
+          for (var i = 0; i < childNodes.length; i++) {
+            var child = childNodes[i];
+            var childResult = formatNode(child, depth + 1);
+
+            if (childResult) {
+              // 判断是否是块级子元素
+              if (child.nodeType === Node.ELEMENT_NODE &&
+                  !['span', 'strong', 'em', 'i', 'u', 's', 'code', 'a', 'b',
+                     'small', 'mark', 'sup', 'sub'].indexOf(child.tagName.toLowerCase())) {
+                hasBlockChild = true;
+              }
+
+              result += childResult;
+            }
+          }
+
+          // 结束标签
+          result += indent + '</' + tagName + '>\n';
+        }
+
+        return result;
+      }
+
+      // 获取元素的属性字符串
+      function getAttributesString(element) {
+        var attrs = [];
+        for (var i = 0; i < element.attributes.length; i++) {
+          var attr = element.attributes[i];
+          attrs.push(attr.name + '="' + attr.value.replace(/"/g, '&quot;') + '"');
+        }
+        return attrs.length > 0 ? ' ' + attrs.join(' ') : '';
+      }
+
+      // 从 <html> 或 <body> 开始格式化
+      var root = doc.documentElement; // <html>
+      var formatted = '';
+
+      // 添加 DOCTYPE
+      formatted += '<!DOCTYPE html>\n';
+
+      // 格式化整个文档
+      var children = root.childNodes;
+      for (var j = 0; j < children.length; j++) {
+        formatted += formatNode(children[j], 0);
+      }
+
+      // 清理多余空行
+      var lines = formatted.split('\n').filter(function(line, idx, arr) {
+        // 保留非空行，或只保留一个连续空行
+        if (line.trim()) return true;
+        if (idx > 0 && arr[idx - 1].trim()) return true; // 只在非空行后保留一个空行
+        return false;
+      });
+
+      return lines.join('\n').trim();
+
+    } catch (e) {
+      // 如果 DOMParser 失败，返回原始 HTML
+      return html;
+    }
+  }
+
+  /**
+   * 🎨 Markdown 渲染函数（与 ai-response-viewer.html 完全一致的实现）
+   *
+   * 核心逻辑：
+   * 1. 检测输入类型（HTML 或纯文本）
+   * 2. 如果是 HTML：清理 → 格式化JSON → 注入样式 → 安全过滤 → 返回HTML字符串
+   * 3. 如果是纯文本：marked解析 → 格式化JSON → 注入样式 → 安全过滤 → 返回HTML字符串
+   */
+  function renderMarkdown(text) {
+    if (!text) {
+      return '<span style="color: #999;">（空内容）</span>';
+    }
+
+    if (typeof window.marked === 'undefined' || typeof window.DOMPurify === 'undefined') {
+      return `<div style="padding: 12px; background: #fef3c7; border: 2px solid #fbbf24; border-radius: 8px;">
+        ⚠️ Markdown 库未加载<br>
+        <pre style="white-space: pre-wrap; font-size: 13px; margin-top: 8px;">${text}</pre>
+      </div>`;
+    }
+
+    try {
+      let processedHtml = text;
+
+      const hasHtmlTags = /<[a-z][\s\S]*>/i.test(text);
+
+      if (hasHtmlTags) {
+        processedHtml = cleanHtmlWhitespace(text);
+        processedHtml = formatJsonBlocks(processedHtml);
+        processedHtml = formatHtmlBlocks(processedHtml);
+        const styledHtml = injectInlineStyles(processedHtml);
+        return DOMPurify.sanitize(styledHtml, {
+          ALLOWED_TAGS: ['h1','h2','h3','h4','h5','h6','p','br','hr','ul','ol','li','strong','b','em','i','del','s','u','a','code','pre','blockquote','table','thead','tbody','tr','th','td','img','span','div','sup','sub','mark','kbd'],
+          ALLOWED_ATTR: ['href','target','rel','title','src','alt','style','class'],
+          ADD_ATTR: ['target','style']
+        });
+      } else {
+        marked.setOptions({ breaks: true, gfm: true });
+        processedHtml = marked.parse(text);
+        processedHtml = formatJsonBlocks(processedHtml);
+        processedHtml = formatHtmlBlocks(processedHtml);
+        const styledHtml = injectInlineStyles(processedHtml);
+        return DOMPurify.sanitize(styledHtml, {
+          ALLOWED_TAGS: ['h1','h2','h3','h4','h5','h6','p','br','hr','ul','ol','li','strong','b','em','i','del','s','u','a','code','pre','blockquote','table','thead','tbody','tr','th','td','img','span','div','sup','sub','mark','kbd'],
+          ALLOWED_ATTR: ['href','target','rel','title','src','alt','style','class'],
+          ADD_ATTR: ['target','style']
+        });
+      }
+    } catch (error) {
+      console.error('[AI-Chat] ❌ 渲染错误:', error);
+      return `<div style="color: red; padding: 10px; background: #fee2e2; border-radius: 6px;">❌ 渲染错误: ${error.message}</div>`;
+    }
+  }
+
+  /**
+   * 🧹 智能清理 HTML（与 electron-crawler 保持一致）
+   * 移除非文本内容、清理多余空白、保留有用结构
+   */
+  function cleanHtmlWhitespace(html) {
+    if (!html) return html;
+    let cleaned = html;
+
+    // 🔍 检测是否为"脏HTML"（Tailwind/ProseMirror）
+    const isDirtyHtml = /(?:dark:text-|max-w-|flex flex-|border-\[|rounded-|bg-\[|text-\[|p-\[|m-\[)/.test(cleaned);
+
+    if (isDirtyHtml) {
+      // 移除 Tailwind 类名
+      cleaned = cleaned.replace(/\s*class="[^"]*(?:dark:text-|max-w-|flex flex-|border-\[|rounded-|bg-\[|text-\[|p-\[|m-\[)[^"]*"/gi, '');
+      cleaned = cleaned.replace(/\s*class="[^"]*\b(?:text-|bg-|p-|m-|w-|h-|flex|grid|gap-|rounded|shadow|opacity|transform|transition|duration|ease|hover:|focus:|active:)[^"]*"/gi, '');
+    }
+
+    // 🔧 清理 style 中的破坏性属性（text-align:center、background、display:block 等）
+    cleaned = cleaned.replace(/style="[^"]*"/gi, function(match) {
+      let newStyle = match
+        .replace(/text-align:\s*[^;]+;?/gi, '')
+        .replace(/background(?:-color)?\s*:\s*[^;]+;?/gi, '')
+        .replace(/padding(?:-top|-bottom|-left|-right)?\s*:\s*[^;]+;?/gi, '')
+        .replace(/margin(?:-top|-bottom|-left|-right)?\s*:\s*[^;]+;?/gi, '')
+        .replace(/display:\s*(?:block|flex|inline-flex|grid|inline-block|table|inline-table)[^;]*;?/gi, '')
+        .replace(/border(?:-top|-bottom|-left|-right)?\s*:\s*[^;]+;?/gi, '')
+        .replace(/border-radius:\s*[^;]+;?/gi, '')
+        .replace(/box-shadow:\s*[^;]+;?/gi, '')
+        .replace(/(?:min-|max-)?width:\s*(?:\d+(?:\.\d+)?(?:px|em|rem|%)|auto)[^;]*;?/gi, '')
+        .replace(/(?:min-|max-)?height:\s*(?:\d+(?:\.\d+)?(?:px|em|rem|%)|auto)[^;]*;?/gi, '')
+        .replace(/position:\s*(?:absolute|relative|fixed|sticky)[^;]*;?/gi, '')
+        .replace(/(?:top|bottom|left|right):\s*[^;]+;?/gi, '')
+        .replace(/z-index:\s*[^;]+;?/gi, '')
+        .replace(/float:\s*[^;]+;?/gi, '')
+        .replace(/clear:\s*[^;]+;?/gi, '')
+        .replace(/overflow(?:-x|-y)?:\s*[^;]+;?/gi, '')
+        .replace(/opacity:\s*[^;]+;?/gi, '')
+        .replace(/transform:\s*[^;]+;?/gi, '')
+        .replace(/var\(--[^)]+\)/gi, '')
+        .replace(/rgba?\([^)]+\)/gi, '');
+      newStyle = newStyle.replace(/;\s*;/g, ';').replace(/^style="\s*;\s*/, 'style="').replace(/\s*;\s*"$/, '"');
+      if (/^style="\s*"?$/.test(newStyle)) return '';
+      return newStyle;
+    });
+
+    // 🔍 移除非文本内容块
+    const removePatterns = [
+      /<svg[\s\S]*?<\/svg>/gi, /<math[\s\S]*?<\/math>/gi,
+      /<span class="katex[\s\S]*?<\/span>/gi, /<canvas[^>]*><\/canvas>/gi,
+      /<button[\s\S]*?<\/button>/gi, /<input[^>]*>/gi,
+      /<i class="icon[\s\S]*?<\/i>/gi, /<animate[\s\S]*?<\/animate>/gi,
+      /\s+d="[^"]*"/g, /data:image\/[^;]+;base64,[^"'\s]*/g,
+      /(?:viewBox|d|path|points)="[^"]{50,}"/g
+    ];
+    removePatterns.forEach(function(pattern) {
+      cleaned = cleaned.replace(pattern, '');
+    });
+
+    // 🆕 v9.11: 保留 <pre> 和 <code> 代码块内的原始格式（换行、缩进、空格）
+    // 提取所有代码块内容，避免后续的空白清理破坏它们
+    var codeBlocks = [];
+    var codeBlockIndex = 0;
+    cleaned = cleaned.replace(/<(pre|code)(\s[^>]*)?>([\s\S]*?)<\/\1>/gi, function(match, tag, attrs, content) {
+      var placeholder = '\x00CODE_BLOCK_' + (codeBlockIndex++) + '\x00';
+      codeBlocks.push({ placeholder: placeholder, original: match });
+      return placeholder;
+    });
+
+    // 移除标签间的多余空白（但不会影响已提取的代码块）
+    cleaned = cleaned.replace(/>\s+</g, '><').replace(/\n\s*\n/g, '\n').replace(/^\s+|\s+$/g, '');
+
+    // 恢复代码块的原始内容
+    codeBlocks.forEach(function(block) {
+      cleaned = cleaned.replace(block.placeholder, block.original);
+    });
+
+    return cleaned;
+  }
+
+  /**
+   * 📝 自动格式化 JSON 代码块（增强版 v2）
+   * 1. 匹配 <code>...</code> 中的 JSON（允许内部有 <span> 等语法高亮标签，用 extractPlainText 提取纯文本）
+   * 2. 扫描整个 HTML 文本，把普通容器（div/p/span）中的长 JSON 字符串也提取出来并格式化
+   *    （解决 AI 回复 HTML 中的 JSON 整行显示为一行的问题）
+   */
+  function formatJsonBlocks(html) {
+    if (!html) return html;
+
+    // 快速检测：如果没有 JSON 特征，直接跳过
+    var hasJsonShape = /[\[{"].*[:\d].*[\]}]/m.test(html);
+    if (!hasJsonShape) return html;
+
+    var result = html;
+    var changed = false;
+
+    // ---------- 步骤 1：匹配 <code ...>...</code> 和 <pre ...>...</pre> 标签对 ----------
+    // v2 关键改动：用 ([\s\S]*?) 代替 ([^<]*)，允许内部有任意内容（含 <span> 语法高亮）
+    // v3 新增：同时匹配 <pre> 标签（DeepSeek 等 AI 常把 JSON 放在 <pre> 中而非 <code>）
+    // v3 修复：正确处理 <pre><code>...</code></pre> 嵌套结构
+    var codeTagPattern = /<(code|pre)(\s[^>]*)?>([\s\S]*?)<\/\1>/gi;
+    result = result.replace(codeTagPattern, function(match, tagName, attrs, innerHtml) {
+      // 提取纯文本（移除内部的 <span>、<div>、<br>、<code> 等标签，还原 HTML 实体）
+      var plainText = innerHtml
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<\/p>/gi, '\n\n')
+        .replace(/<\/div>/gi, '\n')
+        .replace(/<[^>]+>/g, '')  // 移除所有内部标签（如语法高亮的 <span>、嵌套的 <code>）
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&amp;/g, '&')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/[ \t]+/g, ' ')
+        .replace(/\n\s*\n/g, '\n')
+        .trim();
+
+      if (!plainText || plainText.length < 30) return match;
+      if (plainText.indexOf(':') === -1) return match;
+
+      var firstChar = plainText.charAt(0);
+      var lastChar = plainText.charAt(plainText.length - 1);
+      if (!((firstChar === '{' && lastChar === '}') || (firstChar === '[' && lastChar === ']'))) {
+        // 如果不是正好 {..} 或 [..]，尝试在文本中查找 JSON 片段
+        var jsonMatch = plainText.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
+        if (!jsonMatch || jsonMatch[0].length < 30) return match;
+        plainText = jsonMatch[0];
+      }
+
+      try {
+        var parsed = JSON.parse(plainText);
+        var formatted = JSON.stringify(parsed, null, 2);
+        var escaped = formatted
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+        changed = true;
+        return '<pre><code class="language-json">' + escaped + '</code></pre>';
+      } catch (e) { return match; }
+    });
+
+    // ---------- 步骤 2：处理普通容器（div/p/span 等）中的 JSON ----------
+    // 扫描器：从左到右跟踪当前是否在 <pre> 或 <code> 内，避免二次包装
+    var inPreOrCode = false;
+    var segments = [];
+    var cursor = 0;
+    var tagPattern = /<\/?(pre|code)[^>]*>/gi;
+    var tagMatch;
+
+    while ((tagMatch = tagPattern.exec(result)) !== null) {
+      var tagStart = tagMatch.index;
+      var tagText = tagMatch[0];
+      var tagName = tagMatch[1].toLowerCase();
+      var isClosing = /^<\//.test(tagText);
+
+      if (!inPreOrCode) {
+        segments.push(processPlainTextForJson(result.substring(cursor, tagStart)));
+        segments.push(tagText);
+        if (!isClosing) inPreOrCode = true;
+      } else {
+        segments.push(result.substring(cursor, tagStart));
+        segments.push(tagText);
+        if (isClosing) inPreOrCode = false;
+      }
+      cursor = tagMatch.index + tagText.length;
+    }
+
+    if (cursor < result.length) {
+      var lastPart = result.substring(cursor);
+      if (!inPreOrCode) segments.push(processPlainTextForJson(lastPart));
+      else segments.push(lastPart);
+    }
+
+    result = segments.join('');
+    return result;
+
+    function processPlainTextForJson(textChunk) {
+      if (!textChunk) return textChunk;
+      return textChunk.replace(/>([^<>]+)</g, function(m, inner) {
+        var trimmed = String(inner).trim();
+        if (!trimmed || trimmed.replace(/\s+/g, '').length === 0) return m;
+
+        var decoded = trimmed
+          .replace(/&quot;/g, '"')
+          .replace(/&#39;/g, "'")
+          .replace(/&amp;/g, '&')
+          .replace(/&lt;/g, '<')
+          .replace(/&gt;/g, '>');
+
+        var firstChar = decoded.charAt(0);
+        var lastChar = decoded.charAt(decoded.length - 1);
+
+        if (!((firstChar === '{' && lastChar === '}') || (firstChar === '[' && lastChar === ']'))) {
+          // 不是完美的 {..} 或 [..]，尝试在文本中查找 JSON 片段
+          var jsonMatch = decoded.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
+          if (!jsonMatch || jsonMatch[0].length < 30) return m;
+          decoded = jsonMatch[0];
+        }
+
+        if (decoded.indexOf(':') === -1) return m;
+        if (decoded.length < 30) return m;
+
+        try {
+          var parsed = JSON.parse(decoded);
+          var formatted = JSON.stringify(parsed, null, 2);
+          var escaped = formatted
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+          changed = true;
+          return '><pre><code class="language-json">' + escaped + '</code></pre><';
+        } catch (e) { return m; }
+      });
+    }
+  }
+
+  /**
+   * 🌐 自动格式化 HTML 代码块（与 formatJsonBlocks 对称）
+   * 匹配 <code class="language-html">...</code> 或 <pre><code>...</code></pre> 中的HTML代码
+   * 使用 formatHtml() 函数进行美化缩进
+   */
+  function formatHtmlBlocks(html) {
+    if (!html) return html;
+
+    // 快速检测：是否有 HTML 代码块特征（<code class="language-html"> 或 <pre> 包含 HTML 标签）
+    var hasHtmlBlock = /<(?:code|pre)[^>]*>[\s\S]*?<\/(?:code|pre)>/i.test(html);
+    if (!hasHtmlBlock) return html;
+
+    var result = html;
+
+    // 匹配 <code class="language-html">...</code> 和 <pre...>...</pre> 标签对
+    var codeTagPattern = /<(code|pre)(\s[^>]*)?>([\s\S]*?)<\/\1>/gi;
+    result = result.replace(codeTagPattern, function(match, tagName, attrs, innerHtml) {
+      // 检查是否是 language-html 或包含 HTML 特征
+      var isHtmlBlock = /language[-:]?html/i.test(attrs) ||
+                        /<(!doctype|html|head|body|div|p|span|a|img|table|form|input|button|script|link|meta|style)\b[\s>]/i.test(innerHtml);
+
+      if (!isHtmlBlock) return match;
+
+      // 提取纯文本（保留原始空白和换行，不要合并空格！）
+      var plainText = innerHtml
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<\/p>/gi, '\n\n')
+        .replace(/<\/div>/gi, '\n')
+        .replace(/<[^>]+>/g, '')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&amp;/g, '&')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        // ❌ 不要合并空格！保留原始格式
+        // .replace(/[ \t]+/g, ' ')
+        .trim();
+
+      if (!plainText || plainText.length < 50) return match;
+
+      // 调用 formatHtml 进行格式化
+      try {
+        var formatted = formatHtml(plainText, 2);
+
+        // 如果格式化后没有变化，返回原始内容
+        if (formatted === plainText || formatted.length <= plainText.length) return match;
+
+        // 转义HTML实体
+        var escaped = formatted
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+
+        return '<pre><code class="language-html">' + escaped + '</code></pre>';
+      } catch (e) {
+        return match;
+      }
+    });
+
+    return result;
+  }
+
+  /**
+   * 🔥 内联样式注入函数（核心功能）
+   * 通过字符串替换将样式直接写入 HTML 标签
+   */
+  function injectInlineStyles(html) {
+    // ✨ 与 ai-response-viewer.html 完全一致的样式定义
+    const styles = {
+        // 标题样式 - 保留美化但移除过度的卡片感
+        'h1': 'font-size: 26px !important; font-weight: 800 !important; color: #1e40af !important; margin: 24px 0 16px 0 !important; padding-bottom: 8px !important; border-bottom: 3px solid #2563eb !important;',
+        'h2': 'font-size: 22px !important; font-weight: 700 !important; color: #1e3a8a !important; margin: 20px 0 12px 0 !important; padding-bottom: 6px !important; border-bottom: 2px solid #60a5fa !important;',
+        'h3': 'font-size: 18px !important; font-weight: 700 !important; color: #2563eb !important; margin: 16px 0 10px 0 !important;',
+        'h4': 'font-size: 16px !important; font-weight: 600 !important; color: #3b82f6 !important; margin: 14px 0 8px 0 !important;',
+
+        // 🔗 超链接 - 强制 inline + 左对齐，覆盖 DeepSeek 原始的 display:block/center 样式
+        'a': 'display: inline !important; text-align: left !important; color: #2563eb !important; text-decoration: underline !important; font-weight: 500 !important;',
+
+        // 🔢 引用数字（只包含1-2位纯数字的 <a>）- 圆形外框，无背景色
+        'a_citation': 'display: inline-block !important; text-align: center !important; border: 1.5px solid #475569 !important; border-radius: 50% !important; min-width: 18px !important; height: 18px !important; line-height: 15px !important; font-size: 10px !important; font-weight: 600 !important; color: #475569 !important; text-decoration: none !important; margin: 0 1px !important; vertical-align: baseline !important; background: transparent !important; padding: 0 !important;',
+
+        // 🔢 上标（引用数字 1/2/9）- 确保上标位置和合适的大小
+        'sup': 'font-size: 10px !important; vertical-align: super !important; line-height: 1 !important; color: #64748b !important;',
+
+        // 粗体 - 保留高亮但更柔和（移除 inline-block 避免换行）
+        'strong': 'background: linear-gradient(120deg, #fef3c7 0%, #fde68a 100%) !important; color: #7c2d12 !important; padding: 2px 6px !important; border-radius: 4px !important; font-weight: 700 !important;',
+
+        // 行内代码
+        'code': 'background: #fee2e2 !important; color: #dc2626 !important; padding: 2px 6px !important; border-radius: 4px !important; border: 1px solid #fca5a5 !important; font-family: "SFMono-Regular", Consolas, monospace !important; font-size: 13px !important; font-weight: 500 !important;',
+
+        // 代码块 - 浅色背景（与页面一致）
+        'pre': 'background: #f8f9fa !important; color: #24292e !important; padding: 16px !important; border-radius: 6px !important; border: 1px solid #e1e4e8 !important; overflow-x: auto !important; margin: 16px 0 !important; font-family: "SFMono-Regular", Consolas, monospace !important; font-size: 13px !important; line-height: 1.6 !important; white-space: pre-wrap !important; word-break: break-all !important;',
+
+        // ✨ 列表样式 - 移除卡片感，改为自然流畅的样式
+        'ul': 'padding-left: 28px !important; margin: 12px 0 !important;',
+        'ol': 'padding-left: 28px !important; margin: 12px 0 !important;',
+
+        // 列表项 - 保持清晰但不夸张
+        'li': 'margin: 6px 0 !important; line-height: 1.7 !important; font-size: 14px !important; color: #1f2937 !important;',
+
+        // 引用块 - 简化样式
+        'blockquote': 'border-left: 4px solid #3b82f6 !important; padding: 10px 16px !important; margin: 16px 0 !important; background: #f8fafc !important; color: #4b5563 !important; font-style: italic !important; border-radius: 0 6px 6px 0 !important;',
+
+        // 段落
+        'p': 'margin: 10px 0 !important; line-height: 1.7 !important; font-size: 14px !important; word-break: break-word !important; overflow-wrap: anywhere !important;',
+
+        // ✨ 通用块级容器（DeepSeek/AI 回复常用 div/span）
+        'div': 'word-break: break-word !important; overflow-wrap: anywhere !important; line-height: 1.7 !important;',
+        'span': 'word-break: break-word !important; overflow-wrap: anywhere !important;',
+
+        // ✨ 表格样式 - 美观的表格渲染（与 ai-response-viewer 完全一致）
+        'table': 'width: 100% !important; border-collapse: collapse !important; margin: 16px 0 !important; background: white !important; border-radius: 8px !important; overflow: hidden !important; box-shadow: 0 1px 3px rgba(0,0,0,0.1) !important; border: 1px solid #e5e7eb !important;',
+        'thead': 'background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important; color: white !important;',
+        'tbody': 'background: white !important;',
+        'tr': 'border-bottom: 1px solid #e5e7eb !important; transition: background 0.2s !important;',
+        'th': 'padding: 12px 16px !important; text-align: left !important; font-weight: 600 !important; font-size: 13px !important; letter-spacing: 0.5px !important; border-right: 1px solid rgba(255,255,255,0.2) !important;',
+        'td': 'padding: 12px 16px !important; font-size: 14px !important; color: #374151 !important; border-right: 1px solid #f3f4f6 !important; text-align: left !important; vertical-align: middle !important;'
+    };
+
+    let result = html;
+
+    // 🔗 <a> 标签单独处理：先匹配完整的 <a ...>内容</a>，根据内容决定样式
+    // - 如果内容是 1-2 位纯数字，或带横线的数字（-1、-3、-8、-1-4）→ 引用数字（圆形外框）
+    // - 否则 → 普通蓝色下划线链接
+    // ✅ 重要：用 ([\s\S]*?) 允许 <a> 内部有 <span> 等嵌套标签
+    result = result.replace(/<a(\s[^>]*)?>([\s\S]*?)<\/a>/gi, (match, attrs, innerHtml) => {
+      // 先清理原有 style 属性
+      let cleanedAttrs = (attrs || '').replace(/style\s*=\s*"[^"]*"/gi, '').trim();
+
+      // 从内部 HTML 中提取纯文本（移除 <span> 等所有标签）
+      const innerText = (innerHtml || '').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ');
+      const trimmedText = innerText.trim();
+
+      // 判断是否为引用数字
+      // 情况1：纯 1-2 位数字  "3" "8" "1" "4"
+      const isSimpleDigit = /^\d{1,2}$/.test(trimmedText);
+      // 情况2：带前/后短横线的数字  "-1" "-3" "8-" "-8-"
+      const isHyphenDigit = /^-?\s*\d{1,2}\s*-?$/.test(trimmedText);
+      // 情况3："数字-数字" 形式（-1-4、1-4）
+      const isMultiDigit = /^-?\s*\d{1,2}\s*-\s*\d{1,2}\s*-?$/.test(trimmedText);
+
+      const isCitation = isSimpleDigit || isHyphenDigit || isMultiDigit;
+
+      // 选择样式和内容（如果是引用数字，从内容中只提取数字）
+      let styleToUse;
+      let displayContent;
+      if (isCitation) {
+        styleToUse = styles['a_citation'] || styles['a'];
+        // 只保留数字字符（去掉 - 和空格）
+        const digitsOnly = trimmedText.replace(/[-\s]/g, '');
+        displayContent = digitsOnly || trimmedText;
+      } else {
+        styleToUse = styles['a'];
+        displayContent = innerHtml;  // 普通链接保留原始内容
+      }
+
+      // 重新组装 <a> 标签
+      if (cleanedAttrs && cleanedAttrs.length > 0) {
+        return `<a style="${styleToUse}" ${cleanedAttrs}>${displayContent}</a>`;
+      } else {
+        return `<a style="${styleToUse}">${displayContent}</a>`;
+      }
+    });
+
+    // 其他标签按原逻辑处理（注意跳过 'a' 和 'a_citation'，它们已单独处理过）
+    Object.keys(styles).forEach(tag => {
+      if (tag === 'a' || tag === 'a_citation') return;  // 已单独处理
+      const style = styles[tag];
+      const regex = new RegExp(`<${tag}(\\s[^>]*)?>`, 'gi');
+
+      result = result.replace(regex, (match, attrs) => {
+        if (tag === 'sup') {
+          // <sup> 也用完全替换 style 的方式
+          return match.replace(/style\s*=\s*"[^"]*"/gi, '').replace(/<sup(\s|>)/i, (m, sep) => {
+            return `<sup style="${style}"${sep === '>' ? '>' : sep}`;
+          });
+        }
+        if (attrs && attrs.indexOf('style=') > -1) {
+          return match.replace(/style="([^"]*)"/i, `style="$1 ${style}"`);
+        } else {
+          return `<${tag}${attrs || ''} style="${style}">`;
+        }
+      });
+    });
+
+    return result;
+  }
+
+  /**
+   * 🎨 AI芯片图标组件（集成电路风格）
+   * 高端科技感设计：方形芯片 + 四周引脚 + AI文字
+   */
+  function renderAIChipIcon(size, options) {
+    var _size = size || 36;
+    var _opts = options || {};
+    var bgColor = _opts.bgColor || '#1a1a2e';
+    var chipColor = _opts.chipColor || '#16213e';
+    var textColor = _opts.textColor || '#00d4ff';
+    var pinColor = _opts.pinColor || '#0f3460';
+    var glowColor = _opts.glowColor || 'rgba(0, 212, 255, 0.3)';
+
+    return createElement('div', {
+      style: {
+        width: _size + 'px',
+        height: _size + 'px',
+        position: 'relative',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center'
+      }
+    },
+      // 芯片主体
+      createElement('div', {
+        style: {
+          width: (_size * 0.7) + 'px',
+          height: (_size * 0.7) + 'px',
+          background: 'linear-gradient(135deg, ' + chipColor + ' 0%, ' + bgColor + ' 100%)',
+          borderRadius: (_size * 0.08) + 'px',
+          border: '2px solid ' + pinColor,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          position: 'relative',
+          boxShadow: '0 0 ' + (_size * 0.15) + 'px ' + glowColor + ', inset 0 1px 2px rgba(255,255,255,0.1)',
+          zIndex: 2
+        }
+      },
+        // AI 文字
+        createElement('span', {
+          style: {
+            fontSize: (_size * 0.32) + 'px',
+            fontWeight: 800,
+            color: textColor,
+            letterSpacing: '-1px',
+            textShadow: '0 0 8px ' + glowColor + ', 0 0 16px ' + glowColor,
+            fontFamily: '"SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+          }
+        }, 'AI')
+      ),
+
+      // 上方引脚 (3个)
+      [0.2, 0.5, 0.8].map(function(pos) {
+        return createElement('div', {
+          key: 'top-' + pos,
+          style: {
+            position: 'absolute',
+            top: '0',
+            left: (pos * 100) + '%',
+            transform: 'translateX(-50%)',
+            width: (_size * 0.06) + 'px',
+            height: (_size * 0.12) + 'px',
+            background: pinColor,
+            borderRadius: '1px',
+            boxShadow: '0 0 4px rgba(15, 52, 96, 0.5)'
+          }
+        });
+      }),
+
+      // 下方引脚 (3个)
+      [0.2, 0.5, 0.8].map(function(pos) {
+        return createElement('div', {
+          key: 'bottom-' + pos,
+          style: {
+            position: 'absolute',
+            bottom: '0',
+            left: (pos * 100) + '%',
+            transform: 'translateX(-50%)',
+            width: (_size * 0.06) + 'px',
+            height: (_size * 0.12) + 'px',
+            background: pinColor,
+            borderRadius: '1px',
+            boxShadow: '0 0 4px rgba(15, 52, 96, 0.5)'
+          }
+        });
+      }),
+
+      // 左侧引脚 (3个)
+      [0.2, 0.5, 0.8].map(function(pos) {
+        return createElement('div', {
+          key: 'left-' + pos,
+          style: {
+            position: 'absolute',
+            left: '0',
+            top: (pos * 100) + '%',
+            transform: 'translateY(-50%)',
+            width: (_size * 0.12) + 'px',
+            height: (_size * 0.06) + 'px',
+            background: pinColor,
+            borderRadius: '1px',
+            boxShadow: '0 0 4px rgba(15, 52, 96, 0.5)'
+          }
+        });
+      }),
+
+      // 右侧引脚 (3个)
+      [0.2, 0.5, 0.8].map(function(pos) {
+        return createElement('div', {
+          key: 'right-' + pos,
+          style: {
+            position: 'absolute',
+            right: '0',
+            top: (pos * 100) + '%',
+            transform: 'translateY(-50%)',
+            width: (_size * 0.12) + 'px',
+            height: (_size * 0.06) + 'px',
+            background: pinColor,
+            borderRadius: '1px',
+            boxShadow: '0 0 4px rgba(15, 52, 96, 0.5)'
+          }
+        });
+      })
+    );
+  }
+
+  // =========================================================
+  // 第4步：主组件
+  // =========================================================
+
+  // React Error Boundary - 捕获渲染期间的错误
+  var ErrorBoundary = (function() {
+    var _ref;
+    try {
+      _ref = React.Component;
+      if (!_ref) throw new Error('React.Component not found');
+    } catch(e) {
+      return null;
+    }
+    
+    function EB(props) {
+      _ref.call(this, props);
+      this.state = { hasError: false, error: null };
+    }
+    EB.prototype = Object.create(_ref.prototype);
+    EB.prototype.constructor = EB;
+    Object.defineProperty(EB.prototype, 'componentDidCatch', {
+      value: function(error, info) {
+        this.setState({ hasError: true, error: error });
+        alert('❌ React 渲染错误！\n\n' +
+          '错误: ' + error.message + '\n\n' +
+          '堆栈: ' + (error.stack || '').substring(0, 800));
+      },
+      writable: true,
+      configurable: true
+    });
+    Object.defineProperty(EB.prototype, 'getDerivedStateFromError', {
+      value: function(error) { return { hasError: true, error: error }; },
+      writable: true,
+      configurable: true
+    });
+    Object.defineProperty(EB.prototype, 'render', {
+      value: function() {
+        if (this.state && this.state.hasError) {
+          return createElement('div', {
+            style: {
+              padding: '30px', background: '#fee2e2', borderRadius: '16px',
+              color: '#dc2626', textAlign: 'center', fontFamily: 'sans-serif',
+              maxWidth: '600px', margin: '40px auto'
+            }
+          }, 
+            createElement('h3', null, '❌ AI助手渲染错误'),
+            createElement('pre', { style: { fontSize: '12px', marginTop: '12px', textAlign: 'left', background: '#fff', padding: '12px', borderRadius: '8px', overflow: 'auto', maxHeight: '300px' } },
+              (this.state.error && this.state.error.message ? this.state.error.message : '未知') +
+              '\n\n' + (this.state.error && this.state.error.stack ? this.state.error.stack.substring(0, 1500) : '')
+            )
+          );
+        }
+        return this.props.children;
+      },
+      writable: true,
+      configurable: true
+    });
+    return EB;
+  })();
+
+    function AIChatApp() {
+    // State 声明
+    var _state1 = useState('');
+    var inputText = _state1[0];
+    var setInputText = _state1[1];
+
+    var _state2 = useState([]);
+    var messages = _state2[0];
+    var setMessages = _state2[1];
+
+    var _state3 = useState([]);
+    var images = _state3[0];
+    var setImages = _state3[1];
+
+    var _state4 = useState(null);
+    var status = _state4[0];
+    var setStatus = _state4[1];
+
+    // 📜 历史消息浏览功能
+    var _state5 = useState([]);
+    var messageHistory = _state5[0];
+    var setMessageHistory = _state5[1];
+
+    var _state6 = useState(-1);
+    var historyIndex = _state6[0];
+    var setHistoryIndex = _state6[1];
+
+    var _state7 = useState(false);
+    var isLoading = _state7[0];
+    var setIsLoading = _state7[1];
+
+    var _state8 = useState('zhipu');
+    var selectedModel = _state8[0];
+    var setSelectedModel = _state8[1];
+
+    var _state9 = useState('glm-4.6v-flash');
+    var zhipuModelVersion = _state9[0];
+    var setZhipuModelVersion = _state9[1];
+
+    var _state10 = useState('qwen-vl-max-latest');
+    var qwenModelVersion = _state10[0];
+    var setQwenModelVersion = _state10[1];
+
+    var _state11 = useState('doubao-seed-2-0-lite-260428');
+    var fangzhouModelVersion = _state11[0];
+    var setFangzhouModelVersion = _state11[1];
+
+    var _state12 = useState('');
+    var activeKeyName = _state12[0];
+    var setActiveKeyName = _state12[1];
+
+    var _state13 = useState(false);
+    var showModelSelector = _state13[0];
+    var setShowModelSelector = _state13[1];
+
+    var _state14 = useState(false);
+    var showSettingsMenu = _state14[0];
+    var setShowSettingsMenu = _state14[1];
+
+    var _state15 = useState(false);
+    var showPromptSelector = _state15[0];
+    var setShowPromptSelector = _state15[1];
+
+    var _state16 = useState(null);
+    var previewImage = _state16[0];
+    var setPreviewImage = _state16[1];
+
+    // 🎯 模式切换状态：'service'（服务卡片）| 'model'（大模型）
+    var _state17 = useState('service');
+    var currentMode = _state17[0];
+    var setCurrentMode = _state17[1];
+
+    var _state17b = useState(false);
+    var showModePanel = _state17b[0];
+    var setShowModePanel = _state17b[1];
+
+    //  服务卡片相关状态
+    var _sService1 = useState([]);
+    var serviceBookmarks = _sService1[0];
+    var setServiceBookmarks = _sService1[1];
+
+    var _sService2 = useState(null);
+    var selectedServiceCard = _sService2[0];
+    var setSelectedServiceCard = _sService2[1];
+
+    var _sService3 = useState('');
+    var serviceCardSearch = _sService3[0];
+    var setServiceCardSearch = _sService3[1];
+
+    var _sService4 = useState(false);
+    var showServiceCardDropdown = _sService4[0];
+    var setShowServiceCardDropdown = _sService4[1];
+
+    var _sService5 = useState(null);
+    var electronApiStatus = _sService5[0];
+    var setElectronApiStatus = _sService5[1];
+
+    var _sService6 = useState('');
+    var serviceStatusMsg = _sService6[0];
+    var setServiceStatusMsg = _sService6[1];
+
+    var _sService7 = useState('');
+    var serviceStatusType = _sService7[0];
+    var setServiceStatusType = _sService7[1];
+
+    var _sService8 = useState(false);
+    var serviceLoading = _sService8[0];
+    var setServiceLoading = _sService8[1];
+
+    // ✨ 新功能：注入模式开关（默认关闭 = 直接发送模式）
+    //    true = 注入到后端输入框模式（保持对话上下文）
+    //    false = 直接发送模式（会开新聊天）
+    var _sService9 = useState(false);
+    var injectMode = _sService9[0];
+    var setInjectMode = _sService9[1];
+
+    // AI 开关状态（默认开启）
+    var _state18 = useState(true);
+    var aiEnabled = _state18[0];
+    var setAiEnabled = _state18[1];
+
+    // 联网搜索开关状态（默认关闭，从IndexedDB缓存读取）
+    var _state15b = useState(function() {
+      try {
+        return window.AIChatDB && window.AIChatDB.getSetting('ai_chat_web_search') === 'true';
+      } catch(e) {
+        return false;
+      }
+    });
+    var webSearchEnabled = _state15b[0];
+    var setWebSearchEnabled = _state15b[1];
+
+    // 经济模式开关（默认开启，节省token）
+    var _state15c = useState(function() {
+      try {
+        return window.AIChatDB && window.AIChatDB.getSetting('ai_chat_economy_mode') !== 'false';
+      } catch(e) {
+        return true;
+      }
+    });
+    var economyMode = _state15c[0];
+    var setEconomyMode = _state15c[1];
+
+    // 用于追踪上一次保存的消息数量（避免重复保存）
+    var lastSavedCountRef = useRef(0);
+    
+    // 是否正在加载历史会话（防止加载时触发自动保存）
+    var isLoadingHistoryRef = useRef(false);
+    
+    // 控制是否自动滚动到底部（展开/折叠时不自动滚动）
+    var shouldAutoScrollRef = useRef(true);
+
+    // =========================================================
+    // IndexedDB 数据持久化系统
+    // =========================================================
+    // 
+    // 新数据结构（符合用户要求）:
+    // {
+    //   id: "20260514_174600_001",        // 唯一 ID (时序_序号)
+    //   timestamp: "2026-05-14 17:46:00",  // 时序
+    //   type: "request" | "response",      // 类型
+    //   modelProvider: "zhipu",            // AI 提供商
+    //   modelName: "glm-4.6v-flash",       // 模型版本
+    //   apiKeyName: "Grace #1",           // API Key 名称
+    //   
+    //   requestContent: {                  // 请求内容 (type=request)
+    //     prompt: "...",
+    //     files: [{ name, type, size, data }]
+    //   },
+    //   
+    //   responseContent: {                 // 响应内容 (type=response)
+    //     rawText: "...",
+    //     parsedData: {...},
+    //     success: true,
+    //     duration: 2.3,
+    //     error: null
+    //   }
+    // }
+    //
+    // 特性：
+    // - 使用 IndexedDB 存储（无大小限制，性能更好）
+    // - 每次交互保存两条记录（request + response）
+    // - 支持数据浏览器查看所有记录
+    // =========================================================
+
+    /**
+     * 保存用户请求到 IndexedDB
+     */
+    function saveRequestToDB(userMsg, images) {
+      if (!window.AIChatDB) {
+        console.warn('[AI-Chat] AIChatDB 未加载，无法保存');
+        return;
+      }
+
+      var record = {
+        id: window.AIChatDB.generateId(new Date()),
+        timestamp: window.AIChatDB.formatTimestamp(new Date()),
+        type: 'request',
+        modelProvider: selectedModel,
+        modelName: selectedModel === 'zhipu' ? zhipuModelVersion : (selectedModel === 'fangzhou' ? fangzhouModelVersion : qwenModelVersion),
+        apiKeyName: activeKeyName,
+        requestContent: {
+          prompt: (typeof userMsg.text === 'object' && userMsg.text !== null && userMsg.text.text !== undefined) ? String(userMsg.text.text) : (userMsg.text || ''),
+          files: images.map(function(img) {
+            return {
+              name: img.name || ('image_' + Date.now() + '.png'),
+              type: img.type || 'image/png',
+              size: img.url ? img.url.length : 0,
+              data: img.url  // Base64 数据
+            };
+          })
+        }
+      };
+
+      window.AIChatDB.add(record).then(function(id) {
+        console.log('[AI-Chat] ✅ 请求已保存到 DB:', id);
+      }).catch(function(err) {
+        console.error('[AI-Chat] ❌ 保存请求失败:', err);
+      });
+    }
+
+    /**
+     * 從原始 API 響應中動態提取 rawText（視圖函數）
+     * 遵循單一數據源原則：只存 fullApiResponse，需要時再提取
+     *
+     * @param {Object} fullApiResponse - 完整的 API 響應對象
+     * @param {string} modelProvider - 模型供應商 ('zhipu'|'fangzhou'|'qwen')
+     * @returns {string} 提取出的文本內容
+     */
+    function extractRawTextFromResponse(fullApiResponse, modelProvider) {
+      if (!fullApiResponse) return '';
+
+      try {
+        // 自動檢測：如果未提供 modelProvider，根據響應結構自動判斷
+        var provider = modelProvider;
+        if (!provider) {
+          if (fullApiResponse.output && Array.isArray(fullApiResponse.output)) {
+            provider = 'fangzhou';
+          } else if (fullApiResponse.choices && Array.isArray(fullApiResponse.choices)) {
+            provider = 'zhipu'; // 智譜和通義格式相同
+          }
+        }
+
+        if (provider === 'fangzhou') {
+          // 方舟格式：data.output → message → content[].text
+          if (fullApiResponse.output && fullApiResponse.output.length > 0) {
+            var messageOutput = fullApiResponse.output.find(function(item) {
+              return item.type === 'message' && item.role === 'assistant';
+            });
+
+            if (messageOutput && messageOutput.content && messageOutput.content.length > 0) {
+              var textContent = messageOutput.content.find(function(c) {
+                return c.type === 'output_text';
+              });
+              if (textContent && textContent.text) {
+                return textContent.text;
+              } else {
+                return messageOutput.content[0]?.text || '';
+              }
+            } else {
+              return fullApiResponse.output[0]?.summary?.[0]?.text ||
+                     fullApiResponse.output[0]?.content?.[0]?.text || '';
+            }
+          }
+        } else {
+          // 智譜/通義格式：data.choices[0].message.content
+          if (fullApiResponse.choices && fullApiResponse.choices[0] &&
+              fullApiResponse.choices[0].message) {
+            return fullApiResponse.choices[0].message.content || '';
+          }
+        }
+      } catch(err) {
+        console.warn('[AI-Chat] ⚠️ 提取 rawText 失敗:', err);
+      }
+
+      return '';
+    }
+
+    /**
+     * 從消息對象中獲取 rawText（便捷函數）
+     * 優先使用緩存值，若無則從 fullApiResponse 動態提取
+     *
+     * @param {Object} msg - 消息對象（包含 result 屬性）
+     * @param {string} [modelProvider] - 模型供應商（可選，用於動態提取）
+     * @returns {string} 文本內容
+     */
+    function getMsgRawText(msg, modelProvider) {
+      if (!msg || !msg.result) return '';
+      var raw = msg.result.rawText;
+      if (raw) {
+        if (typeof raw === 'object' && raw.text !== undefined) return String(raw.text);
+        if (typeof raw === 'string') return raw;
+        return String(raw);
+      }
+      if (msg.result.fullApiResponse) {
+        return extractRawTextFromResponse(msg.result.fullApiResponse, modelProvider);
+      }
+      return '';
+    }
+
+    /**
+     * 保存 AI 响应到 IndexedDB
+     */
+    function saveResponseToDB(aiMsg) {
+      if (!window.AIChatDB) {
+        console.warn('[AI-Chat] AIChatDB 未加载，无法保存');
+        return;
+      }
+
+      var record = {
+        id: window.AIChatDB.generateId(new Date()),
+        timestamp: window.AIChatDB.formatTimestamp(new Date()),
+        type: 'response',
+        modelProvider: selectedModel,
+        modelName: selectedModel === 'zhipu' ? zhipuModelVersion : (selectedModel === 'fangzhou' ? fangzhouModelVersion : qwenModelVersion),
+        apiKeyName: activeKeyName,
+        responseContent: {
+          parsedData: aiMsg.result ? aiMsg.result.parsedData : null,
+          success: !aiMsg.error,
+          duration: aiMsg.duration || 0,
+          error: aiMsg.error || null,
+          modelName: aiMsg.result ? aiMsg.result.modelName : '',
+          fullApiResponse: aiMsg.result ? aiMsg.result.fullApiResponse : null
+        }
+      };
+
+      console.log('[AI-Chat] 💾 保存响应到 DB（優化：僅存 fullApiResponse，rawText 按需提取）');
+
+      window.AIChatDB.add(record).then(function(id) {
+        console.log('[AI-Chat] ✅ 响应已保存到 DB:', id);
+      }).catch(function(err) {
+        console.error('[AI-Chat] ❌ 保存响应失败:', err);
+      });
+    }
+
+    /**
+     * 从 IndexedDB 加载历史记录并转换为 messages 格式
+     */
+    function loadHistoryFromDB() {
+      if (!window.AIChatDB) {
+        console.warn('[AI-Chat] AIChatDB 未加载，无法加载历史');
+        return;
+      }
+
+      window.AIChatDB.getAll(100).then(function(records) {
+        if (!records || records.length === 0) {
+          console.log('[AI-Chat] ℹ️ 无历史记录');
+          return;
+        }
+
+        // 转换为 messages 格式并配对
+        var messages = [];
+        
+        function normalizeText(val) {
+          if (val == null) return '';
+          if (typeof val === 'string') return val;
+          if (typeof val === 'object' && val.text !== undefined) return String(val.text);
+          return String(val);
+        }
+        
+        records.forEach(function(record) {
+          if (record.type === 'request') {
+            var req = record;
+            var promptText = normalizeText(req.requestContent ? req.requestContent.prompt : '');
+            messages.push({
+              role: 'user',
+              text: promptText,
+              imgs: req.requestContent && req.requestContent.files ? 
+                req.requestContent.files.map(function(f) {
+                  return { url: f.data, name: f.name };
+                }) : [],
+              time: req.timestamp ? req.timestamp.substring(11, 16) : '',
+              fullTimestamp: req.timestamp,
+              _sortTime: req.timestamp ? new Date(req.timestamp).getTime() : 0
+            });
+          } else if (record.type === 'response') {
+            var res = record;
+            var rc = res.responseContent || {};
+            var isServiceCard = (res.modelProvider === 'service-card');
+            var fullApiData = isServiceCard ? null : (rc.fullApiResponse || null);
+            var savedRawText = normalizeText(rc.rawText);
+            var extractedRawText = isServiceCard ? '' : normalizeText(extractRawTextFromResponse(fullApiData, res.modelProvider));
+            var displayRawText = savedRawText || extractedRawText;
+            var summaryText;
+            if (isServiceCard && displayRawText) {
+              if (displayRawText.length > 80) {
+                summaryText = '🕷️ ' + (rc.modelName || res.modelName || '服务卡片') + ' | ' + displayRawText.length + ' 字符';
+              } else {
+                summaryText = displayRawText;
+              }
+            } else {
+              summaryText = rc.duration ? ('已完成 ' + rc.duration + 's) 图片分析') : (displayRawText || '');
+              if (!summaryText && !displayRawText) summaryText = '';
+            }
+
+            messages.push({
+              role: 'ai',
+              text: summaryText,
+              displayMode: 'markdown',
+              collapseState: 'none',
+              result: {
+                rawText: displayRawText,
+                html: (rc.html != null && rc.html !== '') ? rc.html : null,
+                parsedData: rc.parsedData || null,
+                modelName: rc.modelName || (res.modelName || ''),
+                apiKeyName: res.apiKeyName || '',
+                duration: rc.duration || 0,
+                fullApiResponse: fullApiData
+              },
+              time: res.timestamp ? res.timestamp.substring(11, 16) : '',
+              fullTimestamp: res.timestamp,
+              _sortTime: res.timestamp ? new Date(res.timestamp).getTime() : 0
+            });
+          }
+        });
+
+        // 🔧 按时间升序排序（旧→新），确保最新的在最后面
+        messages.sort(function(a, b) {
+          return a._sortTime - b._sortTime;
+        });
+
+        // 📌 设置折叠状态：最新3条保持半展开（none），其他只显示一行（half）
+        messages.forEach(function(m, idx) {
+          if (idx >= messages.length - 3) {
+            m.collapseState = 'none';
+          } else {
+            m.collapseState = 'half';
+          }
+        });
+
+        if (messages.length > 0) {
+          setMessages(messages);
+          lastSavedCountRef.current = messages.length;
+
+          setStatus({ 
+            ok: true, 
+            msg: '已从数据库加载 ' + messages.length + ' 条消息'
+          });
+          setTimeout(function() { setStatus(null); }, 3000);
+
+          console.log('[AI-Chat] ✅ 已恢复', messages.length, '条消息（已按时间排序）');
+        }
+
+      }).catch(function(err) {
+        console.error('[AI-Chat] ❌ 加载历史失败:', err);
+      });
+    }
+
+    // 加载 Prompt 模板
+    var promptTemplates = [];
+    try {
+      var savedPrompts = window.AIChatDB ? window.AIChatDB.getSetting('ai_ocr_prompts') : null;
+      if (savedPrompts) {
+        promptTemplates = typeof savedPrompts === 'string' ? JSON.parse(savedPrompts) : savedPrompts;
+      }
+    } catch(e) {}
+
+    var fileRef = useRef(null);
+    var msgEndRef = useRef(null);
+
+    // 自动滚动
+    useEffect(function() {
+      if (msgEndRef.current && shouldAutoScrollRef.current) {
+        msgEndRef.current.scrollIntoView({ behavior: 'smooth' });
+      }
+      // 重置标志位
+      shouldAutoScrollRef.current = true;
+    }, [messages]);
+
+    // 加载设置（模型版本 + API Key 名称）- 支持实时同步
+    useEffect(function() {
+      function loadSettings() {
+        try {
+          var savedModel = window.AIChatDB ? window.AIChatDB.getSetting('ai_parser_model') : null;
+          
+          if (savedModel) {
+            var newModel = savedModel === 'qwen' ? 'qwen' : (savedModel === 'fangzhou' ? 'fangzhou' : 'zhipu');
+            setSelectedModel(newModel);
+          } else {
+            setSelectedModel('zhipu');
+          }
+
+          var savedModels = window.AIChatDB ? window.AIChatDB.getSetting('ai_parser_models') : null;
+          if (savedModels) {
+            try {
+              var models = typeof savedModels === 'string' ? JSON.parse(savedModels) : savedModels;
+              if (models.zhipu) setZhipuModelVersion(models.zhipu);
+              if (models.tongyi) setQwenModelVersion(models.tongyi);
+              if (models.fangzhou) setFangzhouModelVersion(models.fangzhou);
+            } catch(e) {}
+          }
+
+          var provider = savedModel === 'qwen' ? 'tongyi' : (savedModel === 'fangzhou' ? 'fangzhou' : 'zhipu');
+          var keyName = window.AIChatDB ? (window.AIChatDB.getSetting('ai_parser_active_key_name_' + provider) || '') : '';
+          
+          if (!keyName) {
+            try {
+              var settingsStr = window.AIChatDB ? window.AIChatDB.getSetting('ai_ocr_settings') : null;
+              if (settingsStr) {
+                var settings = typeof settingsStr === 'string' ? JSON.parse(settingsStr) : settingsStr;
+                var keys = settings.apiKeys && settings.apiKeys[provider] ? settings.apiKeys[provider] : [];
+                var idx = settings.activeKeyIndex && settings.activeKeyIndex[provider] ? settings.activeKeyIndex[provider] : 0;
+                keyName = keys[idx] && keys[idx].name ? keys[idx].name : ('Key #' + (idx + 1));
+              }
+            } catch(e) {}
+          }
+          
+          setActiveKeyName(keyName || 'Grace #1');
+        } catch(err) {}
+      }
+
+      loadSettings();
+
+      function handleStorageChange(e) {
+        try {
+          if (e.key === 'ai_parser_model' || e.key === 'ai_parser_models' || 
+              e.key === 'ai_ocr_settings' || (e.key && e.key.startsWith('ai_parser_active_key_name_'))) {
+            loadSettings();
+          }
+        } catch(err) {}
+      }
+      
+      try { window.addEventListener('storage', handleStorageChange); } catch(e) {}
+
+      function handleModelChanged() {
+        try { loadSettings(); } catch(e) {}
+      }
+      
+      try { window.addEventListener('ai:modelChanged', handleModelChanged); } catch(e) {}
+
+      return function() {
+        try {
+          window.removeEventListener('storage', handleStorageChange);
+          window.removeEventListener('ai:modelChanged', handleModelChanged);
+        } catch(e) {}
+      };
+    }, []);  // 只在挂载时执行一次
+
+    //  当模型提供商切换时，同步更新 API Key 名称
+    useEffect(function() {
+      try {
+        var provider = selectedModel === 'qwen' ? 'tongyi' : (selectedModel === 'fangzhou' ? 'fangzhou' : 'zhipu');
+        var keyName = window.AIChatDB ? (window.AIChatDB.getSetting('ai_parser_active_key_name_' + provider) || '') : '';
+        
+        if (!keyName) {
+          try {
+            var settingsStr = window.AIChatDB ? window.AIChatDB.getSetting('ai_ocr_settings') : null;
+            if (settingsStr) {
+              var settings = typeof settingsStr === 'string' ? JSON.parse(settingsStr) : settingsStr;
+              var keys = settings.apiKeys && settings.apiKeys[provider] ? settings.apiKeys[provider] : [];
+              var idx = settings.activeKeyIndex && settings.activeKeyIndex[provider] ? settings.activeKeyIndex[provider] : 0;
+              keyName = keys[idx] && keys[idx].name ? keys[idx].name : ('Key #' + (idx + 1));
+            }
+          } catch(e) {}
+        }
+        
+        if (keyName && keyName !== activeKeyName) {
+          setActiveKeyName(keyName);
+        }
+      } catch(err) {}
+    }, [selectedModel]);  // 当 selectedModel 改变时触发
+
+    // 自动从 IndexedDB 加载历史记录
+    useEffect(function() {
+      try {
+        console.log('[AI-Chat] � 正在从 IndexedDB 加载历史...');
+        
+        // 延迟 500ms 确保 IndexedDB 已初始化
+        setTimeout(function() {
+          loadHistoryFromDB();
+        }, 500);
+        
+      } catch(err) {
+        console.error('[AI-Chat] ❌ 加载历史失败:', err);
+      }
+    }, []);
+
+    // ️ 检查 Electron API 连接状态 + 定期获取服务卡片列表
+    useEffect(function() {
+      function checkElectronApi() {
+        try {
+          fetch('http://localhost:3000/api/status')
+            .then(function(res) {
+              if (res.ok) {
+                setElectronApiStatus('connected');
+                // API 已连接，获取卡片列表
+                fetchServiceBookmarks();
+              } else {
+                setElectronApiStatus(null);
+              }
+            })
+            .catch(function() {
+              setElectronApiStatus(null);
+            });
+        } catch(e) {
+          setElectronApiStatus(null);
+        }
+      }
+
+      // 立即检查一次
+      checkElectronApi();
+      // 每 5 秒检查一次
+      var interval = setInterval(checkElectronApi, 5000);
+
+      return function() { clearInterval(interval); };
+    }, []);
+
+    // 图片处理
+    function handleFiles(e) {
+      var files = e.target.files;
+      if (!files || files.length === 0) {
+        return;
+      }
+
+      var newImages = [];
+      var count = 0;
+      var totalFiles = files.length;
+
+      for (var i = 0; i < totalFiles; i++) {
+        (function(file, idx) {
+          var reader = new FileReader();
+          reader.onload = function(ev) {
+            newImages.push({
+              id: Date.now() + '_' + idx,
+              name: file.name,
+              url: ev.target.result
+            });
+            count++;
+
+            if (count === totalFiles) {
+              setImages(function(prev) { 
+                return prev.concat(newImages); 
+              });
+              setStatus({ ok: true, msg: '已添加 ' + newImages.length + ' 张图片' });
+              setTimeout(function() { setStatus(null); }, 2000);
+            }
+          };
+          
+          reader.onerror = function(err) {
+            console.error('[AI-Chat] 文件读取失败:', err);
+          };
+          
+          reader.readAsDataURL(file);
+        })(files[i], i);
+      }
+
+      e.target.value = '';
+    }
+
+    function removeImage(idx) {
+      setImages(function(prev) {
+        return prev.filter(function(_, i) { return i !== idx; });
+      });
+    }
+
+    // 📎 估算 Base64 数据的实际字节大小
+    function estimateBase64Size(dataUrl) {
+      if (!dataUrl) return 0;
+      try {
+        var base64Part = dataUrl.indexOf(',') > -1 ? dataUrl.substring(dataUrl.indexOf(',') + 1) : dataUrl;
+        var padding = (base64Part.match(/=/g) || []).length;
+        return Math.floor((base64Part.length * 3) / 4) - padding;
+      } catch(e) {
+        return dataUrl.length;
+      }
+    }
+
+    // =========================================================
+    // 🕷️ 服务卡片功能函数
+    // =========================================================
+
+    /**
+     * 从 Electron API 获取爬虫卡片列表
+     */
+    function fetchServiceBookmarks() {
+      try {
+        fetch('http://localhost:3000/api/bookmarks')
+          .then(function(res) {
+            if (res.ok) {
+              return res.json();
+            }
+            throw new Error('API 请求失败');
+          })
+          .then(function(data) {
+            setServiceBookmarks(data.bookmarks || []);
+          })
+          .catch(function(e) {
+            console.error('[AI-Chat] 获取卡片列表失败:', e);
+          });
+      } catch(e) {
+        console.error('[AI-Chat] 获取卡片列表失败:', e);
+      }
+    }
+
+    /**
+     * 选择服务卡片
+     */
+    function selectServiceCard(index) {
+      var bm = serviceBookmarks[index];
+      if (!bm) return;
+      setSelectedServiceCard({ 
+        index: index, 
+        name: bm.name, 
+        url: bm.url, 
+        category: bm.category, 
+        previewOnly: bm.previewOnly, 
+        presetMessage: bm.presetMessage || '', 
+        replySelector: bm.replySelector || '',
+        heartbeatSelector: bm.heartbeatSelector || '',
+        monitorTimeout: bm.monitorTimeout || 0
+      });
+      setShowServiceCardDropdown(false);
+      setServiceCardSearch('');
+      // 🎯 将卡片的自定义消息填充到输入框
+      if (bm.presetMessage) {
+        setInputText(bm.presetMessage);
+      }
+    }
+
+    /**
+     * 清除卡片选择
+     */
+    function clearServiceCardSelection() {
+      setSelectedServiceCard(null);
+      setServiceCardSearch('');
+      setInputText('');
+    }
+
+    /**
+     *  浏览网页 - 调用爬虫 API
+     */
+    function browseServiceCard() {
+      if (!selectedServiceCard) {
+        setServiceStatusMsg('请先选择一个爬虫卡片');
+        setServiceStatusType('danger');
+        return;
+      }
+
+      if (electronApiStatus !== 'connected') {
+        setServiceStatusMsg('⚠️ Electron API 未连接，请先启动 Electron 服务');
+        setServiceStatusType('danger');
+        return;
+      }
+
+      var userMsg = inputText.trim();
+      if (!userMsg && !selectedServiceCard.presetMessage) {
+        setServiceStatusMsg('请输入消息或使用卡片预设消息');
+        setServiceStatusType('warning');
+        return;
+      }
+
+      var finalMsg = userMsg || selectedServiceCard.presetMessage;
+
+      setServiceLoading(true);
+      setServiceStatusMsg(' 正在浏览网页...');
+      setServiceStatusType('info');
+
+      //  将用户消息显示到交互区（与大模型模式一致）
+      var userMsgObj = {
+        id: Date.now(),
+        role: 'user',
+        text: finalMsg,
+        imgs: images && images.length > 0 ? images : [],  // 📎 修复：添加用户上传的附件（与大模型模式一致）
+        time: getTime()
+      };
+
+      setMessages(function(prev) {
+        return prev.concat([userMsgObj]);
+      });
+
+      //  保存用户请求到 IndexedDB（与大模型模式一致）
+      saveRequestToDB(userMsgObj, []);
+
+      //  保存到消息历史记录（支持↑↓键浏览）
+      if (finalMsg) {
+        setMessageHistory(function(prev) {
+          var historyItem = {
+            text: finalMsg,
+            images: []
+          };
+          var newHistory = prev.concat([historyItem]);
+          if (newHistory.length > 50) {
+            newHistory = newHistory.slice(-50);
+          }
+          return newHistory;
+        });
+        setHistoryIndex(-1);
+      }
+
+      // 清空输入框
+      setInputText('');
+
+      // ✨ 新功能：根据 injectMode 选择发送方式
+      console.log('[AI-Chat] 🔍 检查注入模式状态:', {
+        injectMode: injectMode,
+        typeofInjectMode: typeof injectMode,
+        finalMsg: finalMsg,
+        finalMsgLength: finalMsg ? finalMsg.length : 0,
+        electronApiStatus: electronApiStatus
+      });
+
+      if (injectMode) {
+        console.log('[AI-Chat] 💉 使用【注入模式】：将消息注入到后端输入框（保持对话上下文）');
+
+        if (electronApiStatus !== 'connected') {
+          setServiceStatusMsg('❌ Electron API 未连接，无法使用注入模式');
+          setServiceStatusType('danger');
+          return;
+        }
+
+        var injectApiUrl = 'http://localhost:3000/api/inject-message-to-webview';
+        console.log('[AI-Chat] 🚀 准备发送注入请求到:', injectApiUrl);
+
+        console.log('[AI-Chat] ⏳ 开始发送 fetch 请求...');
+
+        // 🆕 构建注入请求 payload（包含附件支持）
+        var injectPayload = {
+          message: finalMsg,
+          serviceCardIndex: selectedServiceCard ? selectedServiceCard.index : 0
+        };
+
+        console.log('[AI-Chat] 🔍 调试: images 变量类型:', typeof images);
+        console.log('[AI-Chat] 🔍 调试: images 是否为数组:', Array.isArray(images));
+        console.log('[AI-Chat] 🔍 调试: images 长度:', images ? images.length : 'null/undefined');
+        if (images && images.length > 0) {
+          console.log('[AI-Chat] 🔍 调试: images[0]:', JSON.stringify(images[0]).substring(0, 100));
+        }
+
+        // 📎 如果有图片，添加附件数据（取第一张图片）
+        if (images && Array.isArray(images) && images.length > 0) {
+          var firstImage = images[0];
+          var attachmentData = {
+            name: firstImage.name || ('image_' + Date.now() + '.png'),
+            type: firstImage.type || 'image/png',
+            data: firstImage.url,  // 完整的 data URL (data:image/png;base64,...)
+            size: estimateBase64Size(firstImage.url)
+          };
+          injectPayload.attachment = attachmentData;
+          console.log('[AI-Chat] 📎✅ 已添加附件到请求:', attachmentData.name, '(' + attachmentData.size + ' bytes)');
+        } else {
+          console.log('[AI-Chat] ⚠️ 没有检测到图片附件（images 为空或不存在）');
+        }
+
+        console.log('[AI-Chat] 📦 注入请求 payload:', JSON.stringify(injectPayload).substring(0, 200) + '...');
+
+        fetch(injectApiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(injectPayload)
+        })
+          .then(function(res) {
+            console.log('[AI-Chat] ✅ 收到响应！状态码:', res.status);
+
+            if (!res.ok) {
+              throw new Error('HTTP ' + res.status + ' - ' + res.statusText);
+            }
+            return res.json();
+          })
+          .then(function(result) {
+            console.log('[AI-Chat] 📦 收到响应数据:', result);
+            setServiceLoading(false);
+
+            if (result.error) {
+              throw new Error(result.error);
+            }
+
+            console.log('[AI-Chat] ✅ 注入完成:', result.message);
+
+            // ✨ 新功能：检查是否有抓取到的 AI 回复内容
+            if (result.hasContent && result.captureResult) {
+              var captureData = result.captureResult;
+              console.log('[AI-Chat] 🎯 收到 AI 回复内容！');
+
+              setServiceStatusMsg('✅ 注入成功，AI 已回复');
+              setServiceStatusType('success');
+
+              // 提取回复文本
+              var replyText = '';
+              var htmlContent = '';
+
+              if (captureData.content) {
+                replyText = typeof captureData.content === 'string' 
+                  ? captureData.content 
+                  : JSON.stringify(captureData.content);
+              }
+
+              if (captureData.html) {
+                htmlContent = captureData.html;
+              } else if (captureData.parsedData && captureData.parsedData.html) {
+                htmlContent = captureData.parsedData.html;
+              }
+
+              console.log('[AI-Chat] 📝 回复文本长度:', replyText.length);
+              console.log('[AI-Chat] 🌐 HTML 长度:', htmlContent ? htmlContent.length : 0);
+
+              // 构建与直接发送模式相同的消息对象
+              var injectMsgObj = {
+                id: Date.now(),
+                role: 'ai',
+                text: replyText || ('💉 消息已注入并收到回复（内容为空）'),
+                time: getTime(),
+                displayMode: 'markdown',
+                collapseState: 'none',
+                result: {
+                  rawText: replyText,
+                  html: htmlContent,
+                  parsedData: captureData.parsedData || null,
+                  modelName: selectedServiceCard ? selectedServiceCard.name : '',
+                  apiKeyName: 'Electron API (注入模式)',
+                  duration: 0,
+                  fullApiResponse: captureData
+                }
+              };
+
+              // ✨ 修复：使用与直接发送模式完全一致的保存逻辑
+              setMessages(function(prev) {
+                // 合并消息后，设置折叠状态：最新3条保持展开，其他折叠成一行
+                var merged = prev.concat([injectMsgObj]);
+                return merged.map(function(m, idx) {
+                  if (idx >= merged.length - 3) {
+                    return Object.assign({}, m, { collapseState: 'none' });
+                  }
+                  return Object.assign({}, m, { collapseState: 'half' });
+                });
+              });
+
+              // ✨ 修复：持久化存储到本地数据库（与直接发送模式一致）
+              if (window.AIChatDB) {
+                var injectResponseRecord = {
+                  id: window.AIChatDB.generateId(new Date()),
+                  timestamp: window.AIChatDB.formatTimestamp(new Date()),
+                  type: 'response',
+                  modelProvider: 'service-card',
+                  modelName: selectedServiceCard ? selectedServiceCard.name : '',
+                  apiKeyName: 'Electron API (注入模式)',
+                  responseContent: {
+                    rawText: replyText,
+                    html: htmlContent,
+                    parsedData: captureData.parsedData || null,
+                    success: true,
+                    duration: 0,
+                    error: null
+                  }
+                };
+                window.AIChatDB.add(injectResponseRecord).catch(function(err) {
+                  console.error('[AI-Chat] 💉 注入模式保存响应失败:', err);
+                });
+                console.log('[AI-Chat] 💾 注入模式响应已保存到 AIChatDB');
+              }
+
+            } else if (result.autoSent === false) {
+              // 未找到发送按钮的情况
+              setServiceStatusMsg('⚠️ 消息已注入到输入框（未找到发送按钮，请手动发送）');
+              setServiceStatusType('warning');
+
+              var manualMsgObj = {
+                id: Date.now(),
+                role: 'ai',
+                text: '💉 消息已注入到后端输入框\n\n⚠️ 未找到发送按钮，请手动点击后端的发送按钮',
+                time: getTime(),
+                isDirectSend: true,
+                displayMode: 'markdown'
+              };
+
+              setMessages(function(prev) {
+                return prev.concat([manualMsgObj]);
+              });
+
+            } else {
+              // 有 autoSent 但没有抓取到内容
+              setServiceStatusMsg('✅ 消息已注入并发送');
+              setServiceStatusType('success');
+
+              var simpleMsgObj = {
+                id: Date.now(),
+                role: 'ai',
+                text: '💉 消息已成功注入并发送！\n\n✅ 后端正在处理中...',
+                time: getTime(),
+                isDirectSend: true,
+                displayMode: 'markdown'
+              };
+
+              setMessages(function(prev) {
+                return prev.concat([simpleMsgObj]);
+              });
+            }
+
+            setTimeout(function() { setServiceStatusMsg(null); }, 5000);
+
+            //  v9.14: 发送成功后自动切换到"继续对话模式"
+            if (!injectMode) {
+              setInjectMode(true);
+              console.log('[AI-Chat] 🔄 已自动切换到【继续对话模式】');
+              setStatus({ ok: true, msg: '🔄 已自动切换到【继续对话模式】' });
+              setTimeout(function() { setStatus(null); }, 2500);
+            }
+
+            // 📎 注入成功后清空图片列表（避免重复发送）
+            if (images && images.length > 0) {
+              console.log('[AI-Chat] 🧹 清空已发送的图片附件');
+              setImages([]);
+            }
+          })
+          .catch(function(e) {
+            console.error('[AI-Chat] ❌ 注入失败:', e);
+            console.error('[AI-Chat] ❌ 错误详情:', {
+              message: e.message,
+              name: e.name,
+              stack: e.stack
+            });
+
+            setServiceLoading(false);
+
+            var errorMsg = '❌ 注入失败: ' + e.message;
+            
+            console.error('[AI-Chat] 详细错误信息:', errorMsg);
+            
+            setServiceStatusMsg(errorMsg);
+            setServiceStatusType('danger');
+            setTimeout(function() { setServiceStatusMsg(null); }, 8000);
+          });
+
+        return;
+      }
+
+      // ============================================================
+      // 🔒 以下为原有的「直接发送模式」（会开启新聊天）
+      // ============================================================
+
+      // ✅ 统一走 Preview 路径：先在 electron-crawler 中打开网页，
+      //    等网页活动稳定后再用 replySelector 抓取元素内容
+      var apiUrl = 'http://localhost:3000/api/preview-bookmark/' + selectedServiceCard.index;
+
+      var payload = {};
+      if (userMsg) {
+        payload.presetMessage = userMsg;
+      } else if (selectedServiceCard.presetMessage) {
+        payload.presetMessage = selectedServiceCard.presetMessage;
+      }
+      // 🔧 关键修复：把 selectedServiceCard 的 replySelector/heartbeatSelector/monitorTimeout 也传给后端
+      //    这样即使 bookmarks.json 的索引/字段不匹配，也能用前端的正确值
+      payload.replySelector = selectedServiceCard.replySelector || '';
+      payload.heartbeatSelector = selectedServiceCard.heartbeatSelector || '';
+      payload.monitorTimeout = selectedServiceCard.monitorTimeout || 0;
+
+      // 📎📎📎 关键修复：直接发送模式下也要传递附件数据！！！
+      if (images && Array.isArray(images) && images.length > 0) {
+        var firstImage = images[0];
+        payload.attachment = {
+          name: firstImage.name || ('image_' + Date.now() + '.png'),
+          type: firstImage.type || 'image/png',
+          data: firstImage.url,
+          size: estimateBase64Size(firstImage.url)
+        };
+        console.log('[AI-Chat] 📎✅ [直接发送模式] 已添加附件到 preview-bookmark payload:', payload.attachment.name, '(' + payload.attachment.size + ' bytes)');
+      } else {
+        console.log('[AI-Chat] ⚠️ [直接发送模式] 没有检测到图片附件');
+      }
+
+      console.log('[AI-Chat] 发送 preview-bookmark 调用 payload:', JSON.stringify(payload).substring(0, 300));
+
+      fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+        .then(function(res) {
+          if (!res.ok) {
+            throw new Error('API 请求失败: HTTP ' + res.status);
+          }
+          return res.json();
+        })
+        .then(function(result) {
+          if (result.error) {
+            throw new Error(result.error);
+          }
+
+          function saveBotResponse(summaryText, fullText, parsedData, htmlContent) {
+            // 🔧 正确处理 htmlContent：用 != null 判断，避免空字符串被 || 当作 falsy
+            var hasHtmlContent = (htmlContent != null) && (htmlContent !== '');
+            var hasParsedDataHtml = (parsedData != null) && (parsedData.html != null) && (parsedData.html !== '');
+            var finalHtml = hasHtmlContent ? htmlContent : (hasParsedDataHtml ? parsedData.html : null);
+
+            console.log('[AI-Chat] 💾 saveBotResponse() 被调用');
+            console.log('[AI-Chat] 📊 fullText 长度:', fullText ? fullText.length : 0);
+            console.log('[AI-Chat] 📊 htmlContent 长度:', (htmlContent != null) ? htmlContent.length : 'null');
+            console.log('[AI-Chat] 📊 parsedData.html 长度:', (parsedData && parsedData.html != null) ? parsedData.html.length : 'null');
+            console.log('[AI-Chat] 🔍 最终保存的 html:', finalHtml ? (finalHtml.length + ' 字符') : '无数据');
+
+            var botMsgObj = {
+              id: Date.now(),
+              role: 'ai',
+              text: summaryText,
+              time: getTime(),
+              displayMode: 'markdown',
+              collapseState: 'none',
+              result: {
+                rawText: fullText,
+                html: finalHtml,
+                parsedData: parsedData || null,
+                modelName: selectedServiceCard ? selectedServiceCard.name : '',
+                apiKeyName: 'Electron API',
+                duration: 0,
+                fullApiResponse: parsedData || null
+              }
+            };
+
+            setMessages(function(prev) {
+              // 合并消息后，设置折叠状态：最新3条保持展开，其他折叠成一行
+              var merged = prev.concat([botMsgObj]);
+              return merged.map(function(m, idx) {
+                if (idx >= merged.length - 3) {
+                  return Object.assign({}, m, { collapseState: 'none' });
+                }
+                return Object.assign({}, m, { collapseState: 'half' });
+              });
+            });
+
+            //  v9.14: 直接发送成功后自动切换到"继续对话模式"
+            if (window.AIChatDB) {
+              var responseRecord = {
+                id: window.AIChatDB.generateId(new Date()),
+                timestamp: window.AIChatDB.formatTimestamp(new Date()),
+                type: 'response',
+                modelProvider: 'service-card',
+                modelName: selectedServiceCard.name,
+                apiKeyName: 'Electron API',
+                responseContent: {
+                  rawText: fullText,
+                  html: finalHtml,
+                  parsedData: parsedData || null,
+                  success: true,
+                  duration: 0,
+                  error: null
+                }
+              };
+              window.AIChatDB.add(responseRecord).catch(function(err) {
+                console.error('[AI-Chat] 保存响应失败:', err);
+              });
+            }
+
+            // 🔄 自动切换为继续对话模式
+            if (!injectMode) {
+              setInjectMode(true);
+              console.log('[AI-Chat] 🔄 已自动切换到【继续对话模式】');
+              setStatus({ ok: true, msg: '🔄 已自动切换到【继续对话模式】' });
+              setTimeout(function() { setStatus(null); }, 2500);
+            }
+
+            return botMsgObj;
+          }
+
+          if (selectedServiceCard.previewOnly) {
+            var captureUrl = 'http://localhost:3000/api/capture-element-content';
+            // 🔧 关键修复：直接把 selectedServiceCard 的字段传给后端
+            //    确保监控用的选择器和超时时间直接由前端传递（避免后端读 bookmarks.json 可能索引不匹配）
+            var capturePayload = {
+              bookmarkIndex: selectedServiceCard.index,
+              replySelector: selectedServiceCard.replySelector || '',
+              heartbeatSelector: selectedServiceCard.heartbeatSelector || '',
+              monitorTimeout: selectedServiceCard.monitorTimeout || 0
+            };
+
+            setServiceStatusMsg('⏳ 获取元素内容中...');
+            return fetch(captureUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(capturePayload)
+            })
+              .then(function(cRes) {
+                if (!cRes.ok) throw new Error('获取元素内容失败: HTTP ' + cRes.status);
+                return cRes.json();
+              })
+              .then(function(cResult) {
+                if (cResult.waiting) {
+                  setServiceStatusMsg('⏳ 网页活动中，3秒后重试获取内容...');
+                  return new Promise(function(resolve) {
+                    setTimeout(function() {
+                      fetch(captureUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(capturePayload)
+                      })
+                        .then(function(r2) { return r2.json(); })
+                        .then(function(r2) { resolve(r2); })
+                        .catch(function(e2) { resolve({ error: e2.message }); });
+                    }, 3000);
+                  });
+                }
+                return cResult;
+              })
+              .then(function(cResult) {
+                if (cResult.error) throw new Error(cResult.error);
+
+                var content = cResult.content || '';
+                var htmlContent = cResult.html || '';
+                console.log('[AI-Chat] 📥 收到爬虫服务响应:');
+                console.log('[AI-Chat]   - cResult.content 长度:', content.length);
+                console.log('[AI-Chat]   - cResult.html 长度:', htmlContent.length);
+                console.log('[AI-Chat]   - cResult 完整对象:', JSON.stringify(cResult).substring(0, 500));
+
+                // 🔍 显示完整诊断信息
+                var debugInfo = cResult.debugInfo || {};
+                var rawBm = debugInfo._rawBookmark || {};
+                var debugText = '\n\n' + '═'.repeat(40) + '\n';
+                debugText += '🔍【监控诊断信息】\n';
+                debugText += '═'.repeat(40) + '\n';
+
+                // 1. 💾 后端 bookmarks.json 实际内容（后端使用的参数）
+                debugText += '💾 后端使用的卡片参数（来自bookmarks.json）:\n';
+                debugText += '  • name: ' + (cResult.bookmark && cResult.bookmark.name ? cResult.bookmark.name : (rawBm.name || '(无)')) + '\n';
+                debugText += '  • url: ' + (cResult.bookmark && cResult.bookmark.url ? cResult.bookmark.url : (rawBm.url || '(无)')) + '\n';
+                debugText += '  • replySelector: ' + (cResult.bookmark && cResult.bookmark.replySelector ? cResult.bookmark.replySelector : (rawBm.replySelector || '(无)')) + '\n';
+                debugText += '  • heartbeatSelector: ' + (cResult.bookmark && cResult.bookmark.heartbeatSelector ? cResult.bookmark.heartbeatSelector : (rawBm.heartbeatSelector || '(无)')) + '\n';
+                debugText += '  • monitorTimeout: ' + ((cResult.bookmark && cResult.bookmark.monitorTimeout) || rawBm.monitorTimeout || 0) + 'ms\n';
+                debugText += '\n';
+
+                // 2. ✅ 实际使用的监控参数（全部来自后端）
+                debugText += '✅ 后端执行时使用的参数:\n';
+                debugText += '  • 监控选择器: ' + (debugInfo.actualMonitorSelector || '(无)');
+                if (debugInfo.monitorSelectorSource && debugInfo.monitorSelectorSource !== '未知') {
+                  debugText += ' (' + debugInfo.monitorSelectorSource + ')';
+                }
+                debugText += '\n';
+                debugText += '  • 内容选择器: ' + (debugInfo.replySelector || '(无)') + '\n';
+                debugText += '  • 超时时间: ' + (debugInfo.monitorTimeoutMs || 0) + 'ms\n';
+                debugText += '\n';
+
+                // 3. 🎯 监控状态
+                debugText += '🎯 监控状态: ' + (debugInfo.activityMonitorStatus || '(未知)') + '\n';
+                if (debugInfo.activityMonitorMessage) {
+                  debugText += '   消息: ' + debugInfo.activityMonitorMessage + '\n';
+                }
+
+                // 4. webview 内部状态（仅在有值时显示）
+                if (debugInfo.webviewInternalState) {
+                  var hasInternalState = false;
+                  var internalStateText = '\n🕸️ webview 内部状态:\n';
+                  if (debugInfo.webviewInternalState.monitorTargetNodeTag) {
+                    internalStateText += '  • 监控目标元素标签: ' + debugInfo.webviewInternalState.monitorTargetNodeTag + '\n';
+                    hasInternalState = true;
+                  }
+                  if (debugInfo.webviewInternalState.monitorTargetNodeTextLen != null) {
+                    internalStateText += '  • 监控目标文本长度: ' + debugInfo.webviewInternalState.monitorTargetNodeTextLen + '\n';
+                    hasInternalState = true;
+                  }
+                  if (debugInfo.webviewInternalState.secondsSinceLastChange != null) {
+                    internalStateText += '  • 距最后 DOM 变化: ' + debugInfo.webviewInternalState.secondsSinceLastChange + ' 秒\n';
+                    hasInternalState = true;
+                  }
+                  if (hasInternalState) {
+                    debugText += internalStateText;
+                  }
+                }
+
+                debugText += '═'.repeat(40) + '\n';
+
+                console.log('[AI-Chat] 🔍 诊断信息:\n' + debugText);
+
+                var summaryText = '🕷️ 服务卡片浏览结果: ' + selectedServiceCard.name + (content ? ' | ' + content.length + ' 字符' : '') + debugText;
+                var fullText = content || ('已在 Electron 中打开预览: ' + selectedServiceCard.name);
+
+                saveBotResponse(summaryText, fullText, cResult, htmlContent);
+
+                // 📎📎 发送成功后清空图片附件（避免残留）
+                if (images && images.length > 0) {
+                  console.log('[AI-Chat] 🧹 [直接发送模式] 清空已发送的图片附件');
+                  setImages([]);
+                }
+
+                // 🔄 浏览完成后自动切换为继续对话模式
+                if (!injectMode) {
+                  setInjectMode(true);
+                  console.log('[AI-Chat] 🔄 已自动切换到【继续对话模式】');
+                }
+
+                setServiceStatusMsg('✅ 浏览完成！卡片:' + selectedServiceCard.name + (' | 内容: ' + (content.length || 0) + ' 字符'));
+                setServiceStatusType('success');
+                setServiceLoading(false);
+                setTimeout(function() { setServiceStatusMsg(''); setServiceStatusType(''); }, 10000);
+              });
+          }
+          // ============================================================
+          // 🔒 [已废弃] 路径 A：crawl-bookmark 扫整页 DOM 后人工拼 Markdown
+          //    2026-06-12 起全部改为「Preview + 选择器抓取」模式，
+          //    此处保留源码仅作为历史记录（实际不会被执行到）
+          // ============================================================
+          // } else {
+          //   var fullText = formatServiceCardResult(result, selectedServiceCard.name);
+          //   var parts = [];
+          //   if (result.links && result.links.length > 0) parts.push('链接' + result.links.length);
+          //   if (result.tables && result.tables.length > 0) parts.push('表格' + result.tables.length);
+          //   if (result.text) parts.push('文本' + result.text.length + '字');
+          //   if (result.images && result.images.length > 0) parts.push('图片' + result.images.length);
+          //   if (result.buttons && result.buttons.length > 0) parts.push('按钮' + result.buttons.length);
+          //   var summaryText = '🕷️ 爬取完成: ' + selectedServiceCard.name + (parts.length ? ' | ' + parts.join(' ') : '');
+          //   saveBotResponse(summaryText, fullText, result);
+          //
+          //   setServiceStatusMsg('✅ 浏览完成！卡片:' + selectedServiceCard.name);
+          //   setServiceStatusType('success');
+          //   setServiceLoading(false);
+          //   setTimeout(function() { setServiceStatusMsg(''); setServiceStatusType(''); }, 10000);
+          // }
+        })
+        .catch(function(e) {
+          console.error('[AI-Chat] 浏览网页失败:', e);
+          var errorMsg = {
+            id: Date.now(),
+            role: 'ai',
+            text: ' 浏览失败：' + e.message,
+            time: getTime(),
+            error: e.message,
+            isRetryable: true,
+            onRetry: function() { browseServiceCard(); }
+          };
+          setMessages(function(prev) {
+            return prev.concat([errorMsg]);
+          });
+          setServiceStatusMsg(' 浏览失败：' + e.message);
+          setServiceStatusType('danger');
+          setServiceLoading(false);
+        });
+    }
+
+    /**
+     * 🔒 [已废弃] 格式化服务卡片结果为消息文本
+     *    2026-06-12 起全部改为「Preview + 选择器抓取」，
+     *    不再使用扫整页 DOM 后人工拼 Markdown 的方式。
+     *    此处保留源码作为历史记录，不会被执行到。
+     */
+    // function formatServiceCardResult(result, cardName) {
+    //   var lines = [];
+    //   lines.push('**🕷️ 服务卡片浏览结果: ' + cardName + '**');
+    //   lines.push('');
+    //
+    //   if (result.links && result.links.length > 0) {
+    //     lines.push('🔗 **超链接 (' + result.links.length + ' 条)**');
+    //     result.links.slice(0, 10).forEach(function(link) {
+    //       lines.push('- [' + (link.text || '链接') + '](' + link.href + ')');
+    //     });
+    //     if (result.links.length > 10) {
+    //       lines.push('  ... 还有 ' + (result.links.length - 10) + ' 条');
+    //     }
+    //     lines.push('');
+    //   }
+    //
+    //   if (result.tables && result.tables.length > 0) {
+    //     lines.push('📊 **表格 (' + result.tables.length + ' 个)**');
+    //     result.tables.forEach(function(table, idx) {
+    //       lines.push('');
+    //       lines.push('表格 ' + (idx + 1) + ':');
+    //       if (table.rows && table.rows.length > 0) {
+    //         table.rows.slice(0, 5).forEach(function(row) {
+    //           lines.push('| ' + row.join(' | ') + ' |');
+    //         });
+    //         if (table.rows.length > 5) {
+    //           lines.push('  ... 还有 ' + (table.rows.length - 5) + ' 行');
+    //         }
+    //       }
+    //     });
+    //     lines.push('');
+    //   }
+    //
+    //   if (result.text) {
+    //     lines.push('📝 **文本内容**');
+    //     lines.push(result.text.substring(0, 500));
+    //     if (result.text.length > 500) {
+    //       lines.push('... (截断)');
+    //     }
+    //     lines.push('');
+    //   }
+    //
+    //   if (result.images && result.images.length > 0) {
+    //     lines.push('🖼️ **图片 (' + result.images.length + ' 张)**');
+    //     result.images.slice(0, 5).forEach(function(img) {
+    //       lines.push('- ' + (img.alt || '图片') + ': ' + img.src);
+    //     });
+    //     if (result.images.length > 5) {
+    //       lines.push('  ... 还有 ' + (result.images.length - 5) + ' 张');
+    //     }
+    //     lines.push('');
+    //   }
+    //
+    //   if (result.buttons && result.buttons.length > 0) {
+    //     lines.push('🔘 **按钮 (' + result.buttons.length + ' 个)**');
+    //     result.buttons.slice(0, 5).forEach(function(btn) {
+    //       lines.push('- ' + (btn.text || btn.tag || '按钮'));
+    //     });
+    //     if (result.buttons.length > 5) {
+    //       lines.push('  ... 还有 ' + (result.buttons.length - 5) + ' 个');
+    //     }
+    //   }
+    //
+    //   return lines.join('\n');
+    // }
+
+    // 复制到剪贴板（兼容 fallback）
+    function fallbackCopy(text) {
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        setStatus({ ok: true, msg: '已复制到剪贴板' });
+        setTimeout(function() { setStatus(null); }, 2000);
+      } catch (e) {
+        setStatus({ ok: false, msg: '复制失败' });
+        setTimeout(function() { setStatus(null); }, 2000);
+      }
+    }
+
+    function copyToClipboard(text) {
+      if (!text) return;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function() {
+          setStatus({ ok: true, msg: '已复制到剪贴板' });
+          setTimeout(function() { setStatus(null); }, 2000);
+        }).catch(function() { fallbackCopy(text); });
+      } else {
+        fallbackCopy(text);
+      }
+    }
+
+    function openImagePreview(image) {
+      if (!image || !image.url) return;
+      createStandaloneFloatingImageWindow(image);
+    }
+
+    function createStandaloneFloatingImageWindow(image) {
+      if (!image || !image.url) return;
+
+      // 如果已注册全局工厂，直接调用
+      if (window.createImagePreviewWindow) {
+        try {
+          window.createImagePreviewWindow(image, { title: 'imagePreviewWindow.js' });
+          return;
+        } catch (e) {
+          console.warn('[AI-Chat] 调用 createImagePreviewWindow 失败，尝试动态加载脚本：', e);
+        }
+      }
+
+      // 动态加载 imagePreviewWindow.js（尝试根据当前 script 路径推导）
+      (function() {
+        try {
+          var base = '';
+          var scripts = document.getElementsByTagName('script');
+          for (var i = 0; i < scripts.length; i++) {
+            var s = scripts[i];
+            if (s && s.src && s.src.indexOf('aiChatParserPlugin.js') !== -1) {
+              base = s.src.substring(0, s.src.lastIndexOf('/') + 1);
+              break;
+            }
+          }
+          // fallback: same directory as document
+          var candidate = base || '';
+          var scriptUrl = candidate + 'imagePreviewWindow.js';
+
+          var loader = document.createElement('script');
+          loader.src = scriptUrl;
+          loader.async = true;
+          loader.onload = function() {
+            try {
+              if (window.createImagePreviewWindow) {
+                      window.createImagePreviewWindow(image, { title: 'imagePreviewWindow.js' });
+                return;
+              }
+            } catch (err) {
+              console.error('[AI-Chat] 动态加载后调用 createImagePreviewWindow 失败:', err);
+            }
+            // 如果仍然不可用，尝试回退到 setPreviewImage
+            try { if (typeof setPreviewImage === 'function') setPreviewImage(image); } catch(e) {}
+          };
+          loader.onerror = function(ev) {
+            console.error('[AI-Chat] 动态加载 imagePreviewWindow.js 失败（' + scriptUrl + '）');
+            try { if (typeof setPreviewImage === 'function') setPreviewImage(image); } catch(e) {}
+          };
+          document.head.appendChild(loader);
+        } catch (e) {
+          // 最后回退：尝试原有的 preview
+          try { if (typeof setPreviewImage === 'function') setPreviewImage(image); } catch(e2) {}
+          console.warn('[AI-Chat] 无法动态加载预览脚本，使用回退方案');
+        }
+      })();
+    }
+
+    function extractJsonFromText(text) {
+      if (!text) return null;
+      var jsonPatterns = [
+        /(\[[\s\S]*?\{[\s\S]*\}[\s\S]*?\])/g,
+        /(\{[\s\S]*?\}[\s\S]*?(?=\n\n|\n$|$))/g
+      ];
+      for (var p = 0; p < jsonPatterns.length; p++) {
+        var matches = text.match(jsonPatterns[p]);
+        if (matches) {
+          for (var i = 0; i < matches.length; i++) {
+            try {
+              var parsed = JSON.parse(matches[i]);
+              if (Array.isArray(parsed) && parsed.length > 0) return matches[i];
+              if (typeof parsed === 'object' && Object.keys(parsed).length > 0) return matches[i];
+            } catch(e) {}
+          }
+        }
+      }
+      var bracketStart = text.indexOf('[');
+      var braceStart = text.indexOf('{');
+      if (bracketStart === -1 && braceStart === -1) return null;
+      var startIdx = bracketStart >= 0 && (braceStart === -1 || bracketStart < braceStart) ? bracketStart : braceStart;
+      var openChar = text[startIdx];
+      var closeChar = openChar === '[' ? ']' : '}';
+      var depth = 0;
+      var endIdx = -1;
+      for (var j = startIdx; j < text.length; j++) {
+        if (text[j] === openChar) { depth++; }
+        else if (text[j] === closeChar) { depth--; if (depth === 0) { endIdx = j + 1; break; } }
+      }
+      if (endIdx > startIdx) {
+        try {
+          var candidate = text.substring(startIdx, endIdx);
+          JSON.parse(candidate);
+          return candidate;
+        } catch(e) {}
+      }
+      return null;
+    }
+
+    // 发送消息
+    async function send() {
+      if (isLoading) return;
+
+      // ✅ 改进：只要有文字或图片就可以发送（不强制要求图片）
+      if (!inputText.trim() && images.length === 0) {
+        setStatus({ ok: false, msg: '请输入内容或上传图片' });
+        setTimeout(function() { setStatus(null); }, 3000);
+        return;
+      }
+
+      // 📜 保存到历史记录（保存文字 + 图片）
+      if (inputText.trim() || images.length > 0) {
+        setMessageHistory(function(prev) {
+          var historyItem = {
+            text: inputText.trim(),           // 文字内容
+            images: images.map(function(img) {  // 图片数组（深拷贝）
+              return {
+                id: img.id,
+                name: img.name,
+                url: img.url
+              };
+            })
+          };
+
+          var newHistory = [...prev, historyItem];
+          // 限制历史记录最多保存 50 条
+          if (newHistory.length > 50) {
+            newHistory = newHistory.slice(-50);
+          }
+          return newHistory;
+        });
+        setHistoryIndex(-1);  // 重置浏览位置
+      }
+
+      // 添加用户消息
+      var userMsg = {
+        role: 'user',
+        text: inputText.trim(),
+        imgs: images.map(function(img) { return { url: img.url, name: img.name }; }),
+        time: getTime()
+      };
+
+      setMessages(function(prev) { 
+        var newMessages = prev.concat([userMsg]);
+        
+        // 💾 直接保存用户请求到 IndexedDB
+        saveRequestToDB(userMsg, images);
+        
+        return newMessages;
+      });
+      
+      setInputText('');
+
+      // 🎯 根据AI开关状态决定处理方式
+      if (images.length > 0 || inputText.trim()) {
+        if (aiEnabled) {
+          // AI 开启：调用 AI API 处理
+          await callAI(userMsg);
+        } else {
+          // AI 关闭：直接发送消息，不调用 AI
+          var directMsg = {
+            role: 'ai',
+            text: '📤 消息已直接发送（AI模式已关闭）',
+            time: getTime(),
+            isDirectSend: true  // 标记为直接发送
+          };
+
+          setMessages(function(prev) {
+            return prev.concat([directMsg]);
+          });
+
+          setStatus({
+            ok: true,
+            msg: '✅ 消息已发送（AI已关闭）'
+          });
+          setTimeout(function() { setStatus(null); }, 2000);
+
+          // 清空图片列表
+          setImages([]);
+
+          console.log('[AI-Chat] 📤 AI已关闭，消息直接发送');
+        }
+      } else {
+        setStatus({ ok: false, msg: '请输入内容或上传图片' });
+        setTimeout(function() { setStatus(null); }, 3000);
+      }
+    }
+
+    // 🤖 调用 AI API（统一入口：支持文字 + 图片 + 自动重试）
+    async function callAI(userMsg) {
+      setIsLoading(true);
+      var start = Date.now();
+      var maxRetries = 10;  // 最大重试次数
+      var retryDelay = 2000;  // 重试间隔（毫秒）
+
+      try {
+        // 🔧 步骤1：显示"正在思考"动画
+        var thinkingMsg = {
+          role: 'ai',
+          text: '',
+          isThinking: true,  // 标记为思考中状态
+          time: getTime()
+        };
+        setMessages(function(prev) { return prev.concat([thinkingMsg]); });
+
+        // 🔧 步骤2：获取 API Key
+        if (!window.AiApiKeyManager || !window.AiApiKeyManager.getActiveKeyInfo) {
+          throw new Error('❌ API Key 管理器未加载或接口不可用！');
+        }
+
+        var provider = selectedModel === 'zhipu' ? 'zhipu' : (selectedModel === 'fangzhou' ? 'fangzhou' : 'tongyi');
+        var activeKey = window.AiApiKeyManager.getActiveKeyInfo(provider);
+        
+        if (!activeKey || !activeKey.key) {
+          var providerName = selectedModel === 'zhipu' ? '智谱' : (selectedModel === 'fangzhou' ? '方舟大模型' : '通义千问');
+          throw new Error('❌ 未设置 ' + providerName + ' API Key！请先在 ⚙️ API Key 设定中配置。');
+        }
+
+        var apiKey = activeKey.key;
+        var actualModel = selectedModel === 'zhipu' ? zhipuModelVersion : (selectedModel === 'fangzhou' ? fangzhouModelVersion : qwenModelVersion);
+        
+        console.log('[AI-Chat] 🚀 开始调用 AI API...');
+        console.log('[AI-Chat] 📡 模型:', selectedModel, '/', actualModel);
+        console.log('[AI-Chat] 🖼️ 图片数量:', images.length);
+        console.log('[AI-Chat] ✍️ 文字长度:', String(userMsg.text || '').length);
+
+        // 更新思考状态
+        setMessages(function(prev) {
+          var updated = prev.slice();
+          var providerName = selectedModel === 'zhipu' ? '智谱 GLM' : (selectedModel === 'fangzhou' ? '方舟大模型' : '通义千问');
+          updated[updated.length - 1] = {
+            ...updated[updated.length - 1],
+            text: '🔄 正在连接到 ' + providerName + '...',
+            step: 'connecting'
+          };
+          return updated;
+        });
+        
+        // 🎯 构建请求内容
+        var content = [];
+        
+        // 添加所有图片（如果有）
+        if (images.length > 0) {
+          images.forEach(function(img, idx) {
+            var base64Data = img.url;
+            if (img.url.indexOf(',') > -1) {
+              base64Data = img.url.substring(img.url.indexOf(',') + 1);
+            }
+            
+            content.push({
+              type: 'image_url',
+              image_url: {
+                url: 'data:' + (img.type || 'image/png') + ';base64,' + base64Data
+              }
+            });
+            
+            console.log('[AI-Chat] 📷 添加图片', idx + 1, ':', img.name || ('image_' + Date.now()));
+          });
+          
+          // 更新思考状态
+          setMessages(function(prev) {
+            var updated = prev.slice();
+            updated[updated.length - 1] = {
+              ...updated[updated.length - 1],
+              text: '📤 正在发送 ' + images.length + ' 张图片到 AI...',
+              step: 'uploading'
+            };
+            return updated;
+          });
+          
+        }
+
+        // 添加文字 prompt
+        var userPrompt = (typeof userMsg.text === 'object' && userMsg.text !== null && userMsg.text.text !== undefined) ? String(userMsg.text.text) : (userMsg.text || (images.length > 0 ? '请识别这张图片中的内容，并以JSON格式输出结果。' : '你好！请回复。'));
+        content.push({
+          type: 'text',
+          text: userPrompt
+        });
+
+        // 🌐 构建完整的API请求参数
+        var apiUrl, requestBody, useFangzhouFormat = false;
+
+        // ✨ 新功能：构建包含历史对话的完整上下文
+        var conversationHistory = [];
+
+        // 📜 将前端 messages 状态转换为 API 格式的历史记录
+        // 注意：messages 数组包含所有历史消息（user + ai），但需要过滤掉思考中的消息
+        if (Array.isArray(messages) && messages.length > 0) {
+          messages.forEach(function(msg) {
+            if (!msg || msg.isThinking || msg.isRetrying) return;  // 跳过思考中和重试状态的消息
+
+            if (msg.role === 'user' && (msg.text || (msg.imgs && msg.imgs.length > 0))) {
+              var userContent = [];
+
+              // 添加图片（如果有）
+              if (msg.imgs && Array.isArray(msg.imgs) && msg.imgs.length > 0) {
+                msg.imgs.forEach(function(img) {
+                  if (img && img.url) {
+                    userContent.push({
+                      type: 'image_url',
+                      image_url: {
+                        url: img.url.startsWith('data:') ? img.url : ('data:' + (img.type || 'image/png') + ';base64,' + img.url)
+                      }
+                    });
+                  }
+                });
+              }
+
+              // 添加文字（如果有）
+              if (msg.text) {
+                var textContent = typeof msg.text === 'object' ? String(msg.text.text || '') : String(msg.text);
+                if (textContent.trim()) {
+                  userContent.push({
+                    type: 'text',
+                    text: textContent
+                  });
+                }
+              }
+
+              if (userContent.length > 0) {
+                conversationHistory.push({
+                  role: 'user',
+                  content: userContent.length === 1 ? userContent[0].text : userContent
+                });
+              }
+            } else if (msg.role === 'ai' && msg.text && !msg.isDirectSend) {
+              var aiText = typeof msg.text === 'object' ? String(msg.text.text || '') : String(msg.text);
+              if (aiText.trim()) {
+                conversationHistory.push({
+                  role: 'assistant',
+                  content: aiText
+                });
+              }
+            }
+          });
+        }
+
+        console.log('[AI-Chat] 📚 对话历史长度:', conversationHistory.length, '条消息');
+
+        if (selectedModel === 'zhipu') {
+          apiUrl = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
+
+          // ✨ 追加当前新消息到历史记录后面
+          var zhipuMessages = conversationHistory.concat([{
+            role: 'user',
+            content: content
+          }]);
+
+          requestBody = {
+            model: actualModel,
+            messages: zhipuMessages,
+            temperature: 0.1
+          };
+        } else if (selectedModel === 'fangzhou') {
+          apiUrl = 'https://ark.cn-beijing.volces.com/api/v3/responses';
+          useFangzhouFormat = true;
+
+          // 构建方舟的 input 格式（包含历史对话）
+          var fangzhouInput = [];
+
+          // ✨ 添加历史对话记录到 fangzhouInput
+          if (conversationHistory.length > 0) {
+            conversationHistory.forEach(function(histMsg) {
+              if (histMsg.role === 'user') {
+                var histUserContent = [];
+                if (typeof histMsg.content === 'string') {
+                  histUserContent.push({
+                    type: 'input_text',
+                    text: histMsg.content
+                  });
+                } else if (Array.isArray(histMsg.content)) {
+                  histMsg.content.forEach(function(item) {
+                    if (item.type === 'text' || item.type === 'input_text') {
+                      histUserContent.push({
+                        type: 'input_text',
+                        text: item.text || ''
+                      });
+                    } else if (item.type === 'image_url') {
+                      histUserContent.push({
+                        type: 'input_image',
+                        image_url: item.image_url ? item.image_url.url : ''
+                      });
+                    }
+                  });
+                }
+                if (histUserContent.length > 0) {
+                  fangzhouInput.push({
+                    role: 'user',
+                    content: histUserContent
+                  });
+                }
+              } else if (histMsg.role === 'assistant') {
+                fangzhouInput.push({
+                  role: 'assistant',
+                  content: typeof histMsg.content === 'string' ? histMsg.content : JSON.stringify(histMsg.content)
+                });
+              }
+            });
+          }
+
+          // 构建当前用户消息的内容
+          var userContent = [];
+          
+          // 先添加所有图片（Base64格式）
+          if (images.length > 0) {
+            images.forEach(function(img, idx) {
+              var base64Data = img.url;
+              if (img.url.indexOf(',') > -1) {
+                base64Data = img.url.substring(img.url.indexOf(',') + 1);
+              }
+              
+              // 方舟格式的图片
+              userContent.push({
+                type: 'input_image',
+                image_url: 'data:' + (img.type || 'image/png') + ';base64,' + base64Data
+              });
+              
+              console.log('[AI-Chat] 📷 [方舟] 添加图片', idx + 1, ':', img.name || ('image_' + Date.now()));
+            });
+            
+            // 更新思考状态
+            setMessages(function(prev) {
+              var updated = prev.slice();
+              updated[updated.length - 1] = {
+                ...updated[updated.length - 1],
+                text: '📤 正在发送 ' + images.length + ' 张图片到火山方舟...',
+                step: 'uploading'
+              };
+              return updated;
+            });
+            
+          }
+          
+          // 再添加文字 prompt
+          var userPrompt = (typeof userMsg.text === 'object' && userMsg.text !== null && userMsg.text.text !== undefined) ? String(userMsg.text.text) : (userMsg.text || (images.length > 0 ? '请识别这张图片中的内容，并以JSON格式输出结果。' : '你好！请回复。'));
+          userContent.push({
+            type: 'input_text',
+            text: userPrompt
+          });
+          
+          fangzhouInput.push({
+            role: 'user',
+            content: userContent
+          });
+          
+          // 构建方舟请求体（支持联网搜索）
+          var fangzhouRequestBody = {
+            model: actualModel,
+            input: fangzhouInput,
+            // 强制关闭深度思考模式，节省 reasoning_tokens（约30%+）
+            thinking: { type: 'disabled' }
+          };
+          
+          // 如果联网搜索开启，添加 web_search 工具
+          if (webSearchEnabled) {
+            fangzhouRequestBody.tools = [{
+              type: 'web_search',
+              max_keyword: 1,  // 🔴 强制1次搜索（原为3次），大幅减少token消耗
+              // 可选：添加搜索结果长度限制（如果API支持的话）
+              search_result_limit: 'compact'  // 尝试请求精简结果
+            }];
+            console.log('[AI-Chat] 🌐 联网搜索已启用 (max_keyword: 1 - ⚡极致节省模式)');
+            
+            // 在用户消息中提示模型简洁回答
+            if (fangzhouInput.length > 0 && fangzhouInput[0]) {
+              var lastUserMsg = fangzhouInput[fangzhouInput.length - 1];
+              if (lastUserMsg.content && Array.isArray(lastUserMsg.content)) {
+                lastUserMsg.content.push({
+                  type: 'input_text',
+                  text: '\n\n【系统提示】请基于搜索结果简洁回答，避免重复信息，控制总字数在200字以内。'
+                });
+              } else if (typeof lastUserMsg.content === 'string') {
+                lastUserMsg.content += '\n\n【系统提示】请基于搜索结果简洁回答，避免重复信息，控制总字数在200字以内。';
+              }
+            }
+          }
+          
+          requestBody = fangzhouRequestBody;
+        } else {
+          apiUrl = 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions';
+
+          // ✨ 追加当前新消息到历史记录后面
+          var tongyiMessages = conversationHistory.concat([{
+            role: 'user',
+            content: content
+          }]);
+
+          requestBody = {
+            model: actualModel,
+            messages: tongyiMessages,
+            temperature: 0.1
+          };
+        }
+
+        console.log('[AI-Chat] 📤 发送请求到:', apiUrl);
+
+        // 更新思考状态
+        setMessages(function(prev) {
+          var updated = prev.slice();
+          updated[updated.length - 1] = {
+            ...updated[updated.length - 1],
+            text: '🎯 正在分析' + (images.length > 0 ? (' ' + images.length + ' 张图片和') : '') + '文字内容...',
+            step: 'analyzing'
+          };
+          return updated;
+        });
+
+        // ============================================================
+        // 🔄 自动重试机制核心代码 (v2.0 - 增强版)
+        // ============================================================
+        var response = null;
+        var lastError = null;
+        var retryCount = 0;
+
+        for (retryCount = 0; retryCount <= maxRetries; retryCount++) {
+          try {
+            // 显示当前尝试状态（第1次不显示"重试"字样）
+            if (retryCount === 0) {
+              setMessages(function(prev) {
+                var updated = prev.slice();
+                updated[updated.length - 1] = {
+                  ...updated[updated.length - 1],
+                  text: '⏳ 等待 AI 响应中...',
+                  step: 'waiting',
+                  retryCount: retryCount,
+                  maxRetries: maxRetries
+                };
+                return updated;
+              });
+            } else {
+              // 显示重试动画
+              setMessages(function(prev) {
+                var updated = prev.slice();
+                updated[updated.length - 1] = {
+                  ...updated[updated.length - 1],
+                  text: '🔄 第 ' + retryCount + '/' + maxRetries + ' 次重试中... (等待2秒)',
+                  step: 'retrying',
+                  retryCount: retryCount,
+                  maxRetries: maxRetries,
+                  isRetrying: true
+                };
+                return updated;
+              });
+
+              // 等待2秒再重试
+              await new Promise(function(resolve) { setTimeout(resolve, retryDelay); });
+
+              // 更新为正在请求状态
+              setMessages(function(prev) {
+                var updated = prev.slice();
+                updated[updated.length - 1] = {
+                  ...updated[updated.length - 1],
+                  text: '🔄 第 ' + retryCount + '/' + maxRetries + ' 次 - 正在请求...',
+                  step: 'requesting',
+                  retryCount: retryCount,
+                  maxRetries: maxRetries,
+                  isRetrying: true
+                };
+                return updated;
+              });
+            }
+
+            // 发起API请求
+            response = await fetch(apiUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + apiKey
+              },
+              body: JSON.stringify(requestBody)
+            });
+
+            // 检查 HTTP 状态
+            if (!response.ok) {
+              var errorBody = '';
+              var errorObj = null;
+              try { 
+                errorBody = await response.text();
+                // 尝试解析错误JSON
+                try { errorObj = JSON.parse(errorBody); } catch(e) {}
+              } catch(e) {}
+              
+              var providerName = selectedModel === 'zhipu' ? '智谱' : (selectedModel === 'fangzhou' ? '方舟大模型' : '通义千问');
+              
+              // 判断是否是可重试的错误
+              // 1. HTTP状态码：429 Too Many Requests 或 5xx 服务器错误
+              // 2. 业务错误码：智谱 1305(访问量过大)、方舟/通义类似的服务端繁忙错误
+              var httpRetryable = (response.status === 429 || (response.status >= 500 && response.status < 600));
+              
+              // 检查业务错误码是否为可重试类型
+              var businessErrorCode = null;
+              var businessErrorMsg = '';
+              if (errorObj && errorObj.error) {
+                businessErrorCode = errorObj.error.code;
+                businessErrorMsg = errorObj.error.message || '';
+              }
+              
+              // 智谱API的可重试错误码列表
+              var retryableBusinessCodes = [1305, 1306, 1307, 1308, 1309, 1310];  // 访问量过大、服务繁忙等
+              var isBusinessErrorRetryable = businessErrorCode && retryableBusinessCodes.indexOf(businessErrorCode) !== -1;
+              
+              // 综合判断：HTTP错误 OR 业务错误码可重试
+              var isRetryableError = (httpRetryable || isBusinessErrorRetryable);
+              
+              // 构建错误信息（包含业务错误码）
+              var errorDisplayMsg = providerName + 'API错误(' + response.status;
+              if (businessErrorCode) {
+                errorDisplayMsg += ', 业务码:' + businessErrorCode;
+              }
+              errorDisplayMsg += '): ' + (businessErrorMsg || errorBody).substring(0, 200);
+              
+              if (isRetryableError && retryCount < maxRetries) {
+                // 可重试错误，记录错误信息继续下一次循环
+                lastError = new Error(errorDisplayMsg);
+                continue;  // 继续下一次重试
+              } else {
+                // 不可重试错误或已达到最大重试次数，直接抛出异常
+                throw new Error(errorDisplayMsg);
+              }
+            }
+
+            // 请求成功，跳出循环
+            break;
+
+          } catch(fetchErr) {
+            lastError = fetchErr;
+            console.error('[AI-Chat] ❌ 第', (retryCount + 1), '次请求异常:', fetchErr.message);
+
+            // 如果不是最后一次，继续重试
+            if (retryCount < maxRetries) {
+              continue;
+            }
+
+            // 最后一次也失败了，抛出异常
+            throw lastError;
+          }
+        }
+
+        // 检查是否所有重试都失败了
+        if (!response || !response.ok) {
+          throw lastError || new Error('❌ 所有重试均失败！');
+        }
+
+        // ============================================================
+        // ✅ 请求成功，解析响应
+        // ============================================================
+        console.log('[AI-Chat] 🎉 请求成功！共尝试', (retryCount + 1), '次');
+
+        // 解析响应
+        var data = await response.json();
+        console.log('[AI-Chat] 📥 收到 AI 响应:', data);
+
+        var rawText = '';
+        if (useFangzhouFormat) {
+          // 方舟格式响应
+          if (data.error) {
+            throw new Error('方舟API错误: ' + (data.error.message || JSON.stringify(data.error)));
+          }
+          if (data.output && data.output.length > 0) {
+            // 方舟有两种输出类型：先找 message 类型的（assistant的回复）
+            var messageOutput = data.output.find(function(item) {
+              return item.type === 'message' && item.role === 'assistant';
+            });
+            
+            if (messageOutput && messageOutput.content && messageOutput.content.length > 0) {
+              // 找到 output_text 类型的内容
+              var textContent = messageOutput.content.find(function(c) {
+                return c.type === 'output_text';
+              });
+              if (textContent && textContent.text) {
+                rawText = textContent.text;
+              } else {
+                rawText = messageOutput.content[0]?.text || '';
+              }
+            } else {
+              // 没有 message，尝试找其他类型的内容
+              rawText = data.output[0]?.summary?.[0]?.text || data.output[0]?.content?.[0]?.text || '';
+            }
+          } else {
+            throw new Error('方舟返回格式异常：' + JSON.stringify(data).substring(0, 200));
+          }
+        } else {
+          // 智谱/通义格式
+          if (data.choices && data.choices[0] && data.choices[0].message) {
+            rawText = data.choices[0].message.content || '';
+          } else {
+            throw new Error('AI 返回格式异常：' + JSON.stringify(data).substring(0, 200));
+          }
+        }
+
+        console.log('[AI-Chat] ✅ AI 响应文本:', rawText.substring(0, 100) + '...');
+
+        // 计算耗时
+        var duration = ((Date.now() - start) / 1000).toFixed(1);
+
+        // 构建完整的响应对象
+        var modelPrefix = selectedModel === 'zhipu' ? '智谱GLM ' : (selectedModel === 'fangzhou' ? '方舟大模型 ' : '通义千问 ');
+        var aiResponse = {
+          rawText: rawText,
+          parsedData: null,
+          modelName: modelPrefix + actualModel,
+          apiKeyName: activeKeyName,  // 添加 API Key 名称
+          fullApiResponse: data,
+          duration: parseFloat(duration),
+          retryCount: retryCount  // 记录实际重试次数
+        };
+
+        // 尝试解析 JSON 格式的响应
+        try {
+          if (rawText.includes('{') && rawText.includes('}')) {
+            var jsonMatch = rawText.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+              aiResponse.parsedData = JSON.parse(jsonMatch[0]);
+              console.log('[AI-Chat] ✅ 成功解析 JSON 响应');
+            }
+          }
+        } catch(parseErr) {
+          console.warn('[AI-Chat] ⚠️ 响应不是有效 JSON，保持原始文本');
+        }
+
+        // 💬 替换思考消息为真实响应
+        var aiMsg = {
+          role: 'ai',
+          text: (images.length > 1
+            ? ('✅ 已完成 ' + images.length + ' 张图片分析')
+            : (images.length === 1
+              ? '✅ 已完成图片分析'
+              : '✅ 已完成回复')
+          ) + ' (' + duration + 's)',
+          result: aiResponse,
+          time: getTime(),
+          duration: parseFloat(duration),
+          isThinking: false,
+          collapseState: 'none',
+          displayMode: 'markdown'
+        };
+
+        setMessages(function(prev) {
+          // 先移除思考消息，再添加真实响应
+          var updated = prev.slice(0, -1);
+          var merged = updated.concat([aiMsg]);
+          // 设置折叠状态：最新3条保持展开，其他折叠成一行
+          return merged.map(function(m, idx) {
+            if (idx >= merged.length - 3) {
+              return Object.assign({}, m, { collapseState: 'none' });
+            }
+            return Object.assign({}, m, { collapseState: 'half' });
+          });
+        });
+        
+        // 💾 保存完整响应到 IndexedDB
+        saveResponseToDB(aiMsg);
+
+        // 清空图片列表
+        setImages([]);
+        
+        console.log('[AI-Chat] 🎉 处理完成！');
+
+      } catch(err) {
+        console.error('[AI-Chat] ❌ 处理失败:', err);
+        
+        var errMsg = {
+          role: 'ai',
+          text: '❌ 处理失败: ' + err.message + (retryCount > 0 ? '\n\n⚠️ 已自动重试 ' + retryCount + ' 次仍失败' : ''),
+          error: err.message,
+          time: getTime(),
+          isThinking: false,
+          retryCount: retryCount  // 记录重试次数
+        };
+        
+        // 替换思考消息为错误消息
+        setMessages(function(prev) {
+          var updated = prev.slice(0, -1);
+          return updated.concat([errMsg]);
+        });
+        
+        // 也保存错误响应到数据库
+        saveResponseToDB(errMsg);
+
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    function safeText(val) {
+      if (val == null) return '';
+      if (typeof val === 'string') return val;
+      if (typeof val === 'object' && val.text !== undefined) return String(val.text);
+      return String(val);
+    }
+
+    // 📌 辅助函数：生成可折叠的抓取参数卡片（两种模式统一使用）
+    function createCollapsibleParamsCard(msg, setMessages) {
+      var params = null;
+      
+      // 直接发送模式：从 fullApiResponse 获取
+      if (msg.result && msg.result.fullApiResponse && msg.result.fullApiResponse.bookmark) {
+        var bm = msg.result.fullApiResponse.bookmark;
+        var debug = msg.result.fullApiResponse.debugInfo || {};
+        params = {
+          cardName: bm.name || '(未知)',
+          cardUrl: bm.url || '',
+          replySelector: bm.replySelector || debug.replySelector || '(无)',
+          heartbeatSelector: bm.heartbeatSelector || debug.actualMonitorSelector || '(无)',
+          monitorTimeout: bm.monitorTimeout || debug.monitorTimeoutMs || 0,
+          contentLength: (msg.result.rawText || '').length,
+          htmlLength: (msg.result.html || '').length,
+          capturedAt: msg.timestamp || new Date().toISOString(),
+          mode: '直接发送'
+        };
+      }
+      
+      // 注入模式：从 captureParams 获取
+      if (msg.result && msg.result.captureParams) {
+        params = Object.assign({}, msg.result.captureParams, { mode: '注入模式' });
+      }
+      
+      if (!params) return null;
+      
+      var isExpanded = msg._paramsExpanded || false;
+      
+      return createElement('div', {
+        style: {
+          marginTop: '8px',
+          background: '#f0fdf4',
+          borderRadius: '6px',
+          border: '1px solid #86efac',
+          overflow: 'hidden'
+        }
+      },
+        createElement('div', {
+          onClick: function(e) {
+            e.stopPropagation();
+            setMessages(function(prev) {
+              return prev.map(function(m) {
+                if (m.id === msg.id) {
+                  var newObj = Object.assign({}, m, { _paramsExpanded: !m._paramsExpanded });
+                  return newObj;
+                }
+                return m;
+              });
+            });
+          },
+          style: {
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '6px 10px',
+            cursor: 'pointer',
+            background: '#dcfce7',
+            userSelect: 'none'
+          }
+        },
+          createElement('span', {
+            style: { fontSize: '11px', fontWeight: 600, color: '#166534' }
+          }, 
+            params.mode === '注入模式' ? '💉' : '🎯',
+            ' 抓取参数 (', params.cardName, ') ',
+            createElement('span', { style: { fontWeight: 400, color: '#15803d', fontSize: '10px' } },
+              '| ', params.contentLength, '字符 | ', params.htmlLength, 'HTML'
+            )
+          ),
+          createElement('span', {
+            style: {
+              fontSize: '12px',
+              color: '#16a34a',
+              transition: 'transform 0.2s',
+              transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)'
+            }
+          }, '▼')
+        ),
+        
+        isExpanded ? createElement('div', {
+          style: {
+            padding: '8px 10px',
+            fontSize: '10px',
+            lineHeight: '1.7',
+            color: '#166534',
+            borderTop: '1px solid #bbf7d0'
+          }
+        },
+          createElement('div', { style: { marginBottom: '4px' } },
+            createElement('strong', null, '📍 选择器: '),
+            createElement('code', {
+              style: {
+                background: '#ecfdf5',
+                padding: '1px 4px',
+                borderRadius: '3px',
+                fontFamily: 'monospace',
+                fontSize: '9px'
+              }
+            }, params.replySelector)
+          ),
+          createElement('div', { style: { marginBottom: '4px' } },
+            createElement('strong', null, '💓 心跳选择器: '),
+            createElement('code', {
+              style: {
+                background: '#ecfdf5',
+                padding: '1px 4px',
+                borderRadius: '3px',
+                fontFamily: 'monospace',
+                fontSize: '9px'
+              }
+            }, params.heartbeatSelector)
+          ),
+          createElement('div', { style: { marginBottom: '4px' } },
+            createElement('strong', null, '⏱️ 超时时间: '), params.monitorTimeout, 'ms'
+          ),
+          createElement('div', { style: { marginBottom: '4px' } },
+            createElement('strong', null, '🔗 URL: '),
+            createElement('span', { 
+              style: { wordBreak: 'break-all', color: '#15803d', fontSize: '9px' }
+            }, 
+              (params.cardUrl || '').substring(0, 60), 
+              (params.cardUrl || '').length > 60 ? '...' : ''
+            )
+          ),
+          createElement('div', { 
+            style: { 
+              color: '#6b7280', 
+              marginTop: '4px', 
+              paddingTop: '4px', 
+              borderTop: '1px dashed #bbf7d0',
+              fontSize: '9px'
+            } 
+          },
+            '⏰ ', (params.capturedAt || '').substring(11, 19),
+            ' | 模式: ', params.mode
+          )
+        ) : null
+      );
+    }
+
+    // 渲染气泡
+    function renderBubble(msg) {
+      var isUser = msg.role === 'user' || msg.type === 'user';
+
+      // 🎯 思考中状态 - 显示动画（包括重试状态）
+      if (msg.isThinking) {
+        // 判断是否是重试状态
+        var isRetrying = msg.isRetrying || false;
+        var currentRetry = msg.retryCount || 0;
+        var maxRetry = msg.maxRetries || 10;
+
+        return createElement('div', {
+          style: {
+            display: 'flex',
+            justifyContent: 'flex-start',
+            marginBottom: '12px',
+            padding: '0 16px',
+            animation: 'fadeIn 0.3s ease-in'
+          }
+        },
+          renderAIChipIcon(36, {
+            bgColor: isRetrying ? '#2d1b00' : '#0a0a1a',  // 重试时使用橙色主题
+            chipColor: isRetrying ? '#3d2800' : '#1a1a3e',
+            textColor: isRetrying ? '#ff9800' : '#00ffff',  // 重试时橙色，正常时青色
+            pinColor: isRetrying ? '#e65100' : '#0066cc',
+            glowColor: isRetrying ? 'rgba(255, 152, 0, 0.6)' : 'rgba(0, 255, 255, 0.6)'
+          }),
+
+          createElement('div', {
+            style: {
+              padding: '12px 18px',
+              borderRadius: '0 18px 18px 18px',
+              background: isRetrying ? '#fff8e1' : '#ffffff',  // 重试时淡黄色背景
+              color: isRetrying ? '#e65100' : '#475569',      // 重试时橙色文字
+              fontSize: '13px',
+              lineHeight: '1.6',
+              boxShadow: isRetrying 
+                ? '0 2px 12px rgba(255, 152, 0, 0.25)'         // 重试时橙色阴影
+                : '0 2px 8px rgba(99, 102, 241, 0.15)',
+              border: isRetrying 
+                ? '2px solid #ffb74d'                          // 重试时橙色边框
+                : '2px solid #e0e7ff',
+              maxWidth: '92%',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            }
+          },
+            // 动画图标：重试时显示旋转箭头，正常时显示跳动点
+            createElement('span', {
+              style: {
+                display: 'inline-flex',
+                gap: '4px',
+                alignItems: 'center'
+              }
+            },
+              isRetrying ? 
+                // 重试动画：旋转的🔄图标
+                createElement('span', {
+                  style: {
+                    display: 'inline-block',
+                    fontSize: '16px',
+                    animation: 'spin 1s linear infinite'
+                  }
+                }, '🔄') :
+                // 正常思考动画：三个跳动的点
+                [0, 1, 2].map(function(i) {
+                  return createElement('span', {
+                    key: i,
+                    style: {
+                      width: '8px',
+                      height: '8px',
+                      borderRadius: '50%',
+                      background: isRetrying ? '#ff9800' : '#6366f1',
+                      animation: 'bounce 1.4s infinite ease-in-out',
+                      animationDelay: (i * 0.16) + 's'
+                    }
+                  });
+                })
+            ),
+            
+            // 状态文字
+            createElement('span', { style: { marginLeft: '6px' } }, safeText(msg.text) || (isRetrying ? '正在重试...' : '正在思考...')),
+
+            // 重试次数进度条（仅在重试时显示）
+            isRetrying && currentRetry > 0 && createElement('span', {
+              style: {
+                marginLeft: '8px',
+                padding: '2px 8px',
+                background: 'linear-gradient(135deg, #ff9800 0%, #f57c00 100%)',
+                color: '#fff',
+                borderRadius: '10px',
+                fontSize: '11px',
+                fontWeight: 600,
+                whiteSpace: 'nowrap',
+                boxShadow: '0 2px 6px rgba(255, 152, 0, 0.3)'
+              }
+            }, currentRetry + '/' + maxRetry)
+          )
+        );
+      }
+
+      return createElement('div', {
+        style: {
+          display: 'flex',
+          justifyContent: isUser ? 'flex-end' : 'flex-start',
+          marginBottom: '12px',
+          padding: '0 16px'
+        }
+      },
+        !isUser && renderAIChipIcon(36, {
+          bgColor: '#0a0a1a',
+          chipColor: '#1a1a3e',
+          textColor: '#00d4ff',
+          pinColor: '#0f3460',
+          glowColor: 'rgba(0, 212, 255, 0.3)'
+        }),
+
+        createElement('div', { style: { maxWidth: '92%' } },
+
+          createElement('div', {
+            style: {
+              padding: '8px 12px',
+              borderRadius: isUser ? '18px 2px 18px 18px' : '2px 18px 18px 18px',
+              background: isUser ? BUBBLE_USER : '#ffffff',
+              color: TEXT_DARK,
+              fontSize: '12px',   // 缩小字体以容纳更多内容
+              lineHeight: '1.5',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+              wordBreak: 'break-word'
+            }
+          },
+            // ⚠️ 对于 Electron API 模式：隐藏 msg.text（因为下面会有格式化渲染区域）
+            // 对于普通 AI 聊天模式：正常显示 msg.text
+            (msg.result && msg.result.apiKeyName && msg.result.apiKeyName.toLowerCase().includes('electron')) ? null : safeText(msg.text),
+
+            msg.imgs && msg.imgs.length > 0 && createElement('div', {
+              style: { marginTop: '8px', display: 'flex', gap: '6px', flexWrap: 'wrap' }
+            },
+              msg.imgs.map(function(img, idx) {
+                return createElement('img', {
+                  key: idx,
+                  src: img.url,
+                  alt: img.name,
+                  title: (img.name || '图片') + '\n双击查看大图',
+                  onDoubleClick: function() {
+                    openImagePreview(img);
+                  },
+                  style: {
+                    width: '120px',
+                    height: '90px',
+                    objectFit: 'cover',
+                    borderRadius: '4px',
+                    border: '1px solid #e0e0e0',
+                    cursor: 'zoom-in'
+                  }
+                });
+              })
+            ),
+
+            msg.result && createElement('div', {
+              style: {
+                marginTop: '10px',
+                background: '#fafafa',  // 更淡的灰白色
+                borderRadius: '4px',
+                padding: '10px',
+                border: '1px solid #f0f0f0'  // 更淡的边框
+              }
+            },
+              // 模型信息行（模型名称 + API Key 名称）
+              createElement('div', {
+                style: {
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: GREEN,
+                  marginBottom: '6px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  flexWrap: 'wrap'
+                }
+              },
+                createElement('span', null, '🔲 ', msg.result.modelName),
+                
+                // API Key 名称（如果有）
+                msg.result.apiKeyName && createElement('span', {
+                  style: {
+                    fontSize: '11px',
+                    fontWeight: 500,
+                    color: '#2563eb',
+                    background: '#dbeafe',
+                    padding: '2px 8px',
+                    borderRadius: '10px',
+                    border: '1px solid #93c5fd'
+                  }
+                }, '🔑 ', msg.result.apiKeyName)
+              ),
+
+              // 📌 可折叠抓取参数卡片（直接发送模式 + 注入模式 统一显示）
+              createCollapsibleParamsCard(msg, setMessages),
+
+              msg.result.rawText && createElement('div', null,
+                // 按钮行：放在内容上方
+                createElement('div', {
+                  style: {
+                    display: 'flex',
+                    gap: '8px',
+                    alignItems: 'center',
+                    marginBottom: '6px'
+                  }
+                },
+                  // 三态折叠控制: none(300px) → half(1.5em) → full(展开) → none
+                  (function() {
+                    // ✅ 对于 Electron API 模式：默认完全展开（避免内容被截断）
+                    var isElectronMode = msg.result && msg.result.apiKeyName && 
+                                        msg.result.apiKeyName.toLowerCase().includes('electron');
+                    var currentState = msg.collapseState || (isElectronMode ? 'full' : 'none');
+                    var stateIcons = { none: '▶', half: '↕', full: '▼' };
+                    return createElement('div', {
+                      onClick: function(e) {
+                        // 三态循环: none → half → full → none
+                        var nextState = (currentState === 'none') ? 'half' : (currentState === 'half' ? 'full' : 'none');
+                        shouldAutoScrollRef.current = false;
+                        var floatingBody = null;
+                        var el = e.currentTarget;
+                        while (el) {
+                          if (el.className && el.className.indexOf('floating-body') !== -1) {
+                            floatingBody = el;
+                            break;
+                          }
+                          el = el.parentElement;
+                        }
+                        var savedScrollTop = 0;
+                        if (floatingBody) savedScrollTop = floatingBody.scrollTop;
+                        setMessages(function(prev) {
+                          return prev.map(function(m, idx) {
+                            if (m === msg) {
+                              return Object.assign({}, m, { collapseState: nextState });
+                            }
+                            return m;
+                          });
+                        });
+                        if (floatingBody) {
+                          function restore() { floatingBody.scrollTop = savedScrollTop; }
+                          restore();
+                          setTimeout(restore, 0);
+                          setTimeout(restore, 10);
+                          setTimeout(restore, 30);
+                          setTimeout(restore, 60);
+                          setTimeout(restore, 100);
+                        }
+                      },
+                      style: {
+                        cursor: 'pointer',
+                        fontSize: '13px',
+                        color: '#888',
+                        userSelect: 'none',
+                        display: 'inline-flex',
+                        alignItems: 'center'
+                      },
+                      title: '点击切换: 折叠(' + currentState + ')'
+                    }, stateIcons[currentState] || '▶');
+                  })(),
+
+                  // 复制按钮（与展开按钮风格一致）
+                  createElement('button', {
+                    onClick: function(e) {
+                      e.stopPropagation();
+                      try { copyToClipboard(msg.result.rawText); } catch (err) { fallbackCopy(msg.result.rawText); }
+                    },
+                    title: '复制',
+                    style: {
+                      background: 'transparent',
+                      border: '1px solid #eee',
+                      padding: '2px 6px',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      fontSize: '12px',
+                      color: '#666'
+                    }
+                  }, '📋'),
+
+                  // 🔀 显示模式切换（Markdown / 文本 / HTML源码）
+                  (function() {
+                    var modes = [
+                      { key: 'markdown', label: '🎨 Markdown' },
+                      { key: 'text', label: '📄 文本' },
+                      { key: 'html', label: '🌐 HTML' }
+                    ];
+                    var currentMode = msg.displayMode || 'markdown';
+                    var toggleChildren = modes.map(function(mode) {
+                      var isActive = (currentMode === mode.key);
+                      return createElement('button', {
+                        onClick: function(e) {
+                          e.stopPropagation();
+                          if (isActive) return;
+                          shouldAutoScrollRef.current = false;
+                          var floatingBody = null;
+                          var el = e.currentTarget;
+                          while (el) {
+                            if (el.className && el.className.indexOf('floating-body') !== -1) {
+                              floatingBody = el;
+                              break;
+                            }
+                            el = el.parentElement;
+                          }
+                          var savedScrollTop = floatingBody ? floatingBody.scrollTop : 0;
+                          setMessages(function(prev) {
+                            return prev.map(function(m, idx) {
+                              if (m === msg) {
+                                // 🆕 v9.12: 模式切换时添加 _modeVersion 强制重新渲染
+                                // 解决模式切换后内容外溢的问题
+                                return {
+                                  ...m,
+                                  displayMode: mode.key,
+                                  _modeVersion: (m._modeVersion || 0) + 1
+                                };
+                              }
+                              return m;
+                            });
+                          });
+                          if (floatingBody) {
+                            function restore() { floatingBody.scrollTop = savedScrollTop; }
+                            restore();
+                            setTimeout(restore, 0); setTimeout(restore, 10); setTimeout(restore, 30); setTimeout(restore, 60); setTimeout(restore, 100);
+                          }
+                        },
+                        style: {
+                          background: isActive ? '#4f46e5' : 'transparent',
+                          color: isActive ? '#fff' : '#666',
+                          border: '1px solid ' + (isActive ? '#4f46e5' : '#e0e0e0'),
+                          padding: '2px 10px',
+                          borderRadius: isActive ? '6px' : '6px',
+                          cursor: isActive ? 'default' : 'pointer',
+                          fontSize: '11px',
+                          fontWeight: 500,
+                          transition: 'all 0.15s ease',
+                          userSelect: 'none'
+                        }
+                      }, mode.label);
+                    });
+                    return createElement('div', {
+                      style: {
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '2px',
+                        marginLeft: 'auto',
+                        padding: '2px',
+                        background: '#f5f5f7',
+                        borderRadius: '8px',
+                        border: '1px solid #e5e7eb'
+                      }
+                    }, toggleChildren[0], toggleChildren[1], toggleChildren[2]);
+                  })(),
+
+                  extractJsonFromText(msg.result.rawText) && createElement('button', {
+                    onClick: function(e) {
+                      e.stopPropagation();
+                      var jsonText = extractJsonFromText(msg.result.rawText);
+                      if (jsonText) {
+                        try { JsonTableViewer.show(jsonText, '⊞ JSON 数据表格视图'); }
+                        catch(err) { console.error('[AI-Chat] 打开表格视图失败:', err); }
+                      }
+                    },
+                    title: 'JSON表格視圖',
+                    style: {
+                      background: 'transparent',
+                      border: 'none',
+                      padding: '4px 8px',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      fontSize: '12px',
+                      color: '#888',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      transition: 'all 0.2s ease'
+                    },
+                    onMouseEnter: function(e) {
+                      e.target.style.background = '#e0e7ff';
+                      e.target.style.color = '#3b82f6';
+                    },
+                    onMouseLeave: function(e) {
+                      e.target.style.background = 'transparent';
+                      e.target.style.color = '#888';
+                    }
+                  },
+                    createElement('svg', {
+                      width: '14',
+                      height: '14',
+                      viewBox: '0 0 16 16',
+                      fill: 'none',
+                      style: { display: 'block' }
+                    },
+                      createElement('rect', {
+                        x: '1', y: '1', width: '14', height: '14',
+                        rx: '2.5', ry: '2.5',
+                        stroke: '#3b82f6',
+                        strokeWidth: '1.5',
+                        fill: 'white'
+                      }),
+                      createElement('line', { x1: '1', y1: '6', x2: '15', y2: '6', stroke: '#3b82f6', strokeWidth: '1' }),
+                      createElement('line', { x1: '1', y1: '10', x2: '15', y2: '10', stroke: '#3b82f6', strokeWidth: '1' }),
+                      createElement('line', { x1: '5.5', y1: '1', x2: '5.5', y2: '15', stroke: '#3b82f6', strokeWidth: '1' }),
+                      createElement('line', { x1: '10.5', y1: '1', x2: '10.5', y2: '15', stroke: '#3b82f6', strokeWidth: '1' })
+                    ),
+                    'JSON表格視圖'
+                  ),
+                ),
+
+                // 文本区域（按钮行下方）- 根据 displayMode 切换渲染方式
+                (function() {
+                  var currentMode = msg.displayMode || 'markdown';
+                  // ✅ 对于 Electron API 模式：默认完全展开（避免内容被截断）
+                  var isElectronMode2 = msg.result && msg.result.apiKeyName && 
+                                       msg.result.apiKeyName.toLowerCase().includes('electron');
+                  var state = msg.collapseState || (isElectronMode2 ? 'full' : 'none');
+
+                  // 🚀 half 状态：不加载实际内容，只显示一行占位
+                  // 这样可以避免渲染大量 HTML/文本，提高速度
+                  if (state === 'half') {
+                    return createElement('div', {
+                      style: {
+                        padding: '6px 12px',
+                        background: 'linear-gradient(90deg, #f8fafc, #e2e8f0)',
+                        border: '1px dashed #cbd5e1',
+                        borderRadius: '6px',
+                        fontSize: '12px',
+                        color: '#64748b',
+                        fontStyle: 'italic',
+                        textAlign: 'center',
+                        cursor: 'pointer',
+                        userSelect: 'none',
+                        overflow: 'hidden',
+                        whiteSpace: 'nowrap',
+                        textOverflow: 'ellipsis'
+                      },
+                      onClick: function(e) {
+                        e.stopPropagation();
+                        shouldAutoScrollRef.current = false;
+                        var floatingBody = null;
+                        var el = e.currentTarget;
+                        while (el) {
+                          if (el.className && el.className.indexOf('floating-body') !== -1) {
+                            floatingBody = el;
+                            break;
+                          }
+                          el = el.parentElement;
+                        }
+                        var savedScrollTop = 0;
+                        if (floatingBody) savedScrollTop = floatingBody.scrollTop;
+                        setMessages(function(prev) {
+                          return prev.map(function(m) {
+                            if (m === msg) {
+                              return Object.assign({}, m, { collapseState: 'none' });
+                            }
+                            return m;
+                          });
+                        });
+                        if (floatingBody) {
+                          function restore() { floatingBody.scrollTop = savedScrollTop; }
+                          restore();
+                          setTimeout(restore, 0);
+                          setTimeout(restore, 10);
+                        }
+                      },
+                      title: '点击展开查看内容'
+                    },
+                      '☰ [ 点击展开查看内容 ]'
+                    );
+                  }
+
+                  // none 或 full 状态才加载实际内容
+                  var htmlSource = (msg.result && msg.result.html) || null;
+                  var rawText = (msg.result && msg.result.rawText) || '';
+                  // 三态控制内容高度: none=300px(折叠), half=1.5em(一行), full=无限制(展开)
+                  var heightMap = {
+                    none: { maxHeight: '300px', overflowY: 'auto' },
+                    half: { maxHeight: '1.5em', overflowY: 'hidden' },
+                    full: { maxHeight: 'none', overflowY: 'visible' }
+                  };
+                  var currentHeightStyle = heightMap[state] || heightMap.none;
+                  var commonStyle = {
+                    maxHeight: currentHeightStyle.maxHeight,
+                    overflowY: currentHeightStyle.overflowY,
+                    overflowX: 'auto',
+                    borderRadius: '8px',
+                    border: '1px solid #e5e7eb',
+                    background: '#fafafa',
+                    padding: '16px',
+                    wordBreak: 'break-word',
+                    overflowWrap: 'anywhere',
+                    // 🆕 v9.12: 确保容器有正确的定位上下文，防止内容外溢
+                    position: 'relative',
+                    display: 'block',
+                    boxSizing: 'border-box'
+                  };
+
+                  if (currentMode === 'text') {
+                    // 📄 纯文本模式：显示 innerText（无任何格式化/HTML）
+                    return createElement('div', {
+                      style: Object.assign({}, commonStyle, {
+                        fontSize: '13px',
+                        lineHeight: '1.7',
+                        color: '#333',
+                        fontFamily: 'inherit',
+                        whiteSpace: 'pre-wrap',
+                        wordBreak: 'break-word'
+                      })
+                    }, cleanWhitespace(rawText || ''));
+                  }
+
+                  if (currentMode === 'html') {
+                    // 🌐 HTML 源码模式：显示 innerHTML 原始字符串（自动缩进 + 实体转义）
+                    var htmlToShow = htmlSource || '';
+
+                    // 🆕 v9.10: 仅在 HTML 模式下清理无关内容（SVG、script、style等）
+                    // 不影响 Markdown 模式！
+                    var cleanedHtmlSource = cleanHtmlSourceForDisplay(htmlToShow);
+
+                    var formattedHtml = formatHtml(cleanedHtmlSource, 2);
+
+                    // 🔍 调试信息：在标题栏显示格式化状态（用户可直接看到！）
+                    var isFormatted = (formattedHtml !== htmlToShow) && (formattedHtml.length > htmlToShow.length);
+                    var debugInfo = '原始: ' + (htmlToShow.length || 0) + '字符 → 格式化: ' + (formattedHtml.length || 0) + '字符' +
+                                    (isFormatted ? ' ✅已美化' : (htmlToShow.length > 0 ? ' ⚠️未变化' : ''));
+
+                    var escapedHtml = escapeHtml(formattedHtml);
+
+                    return createElement('div', {
+                      style: Object.assign({}, commonStyle, {
+                        padding: '0'
+                        // 🆕 v9.13: 移除 overflow:'hidden'，使用 commonStyle 中统一的 overflowY 设置
+                      })
+                    },
+                      createElement('div', {
+                        style: {
+                          padding: '8px 12px',
+                          background: '#1e293b',
+                          color: '#e2e8f0',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          borderTopLeftRadius: '8px',
+                          borderTopRightRadius: '8px',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center'
+                        }
+                      },
+                        createElement('span', null, 'HTML 源码'),
+                        createElement('span', {
+                          style: {
+                            fontSize: '10px',
+                            color: isFormatted ? '#4ade80' : (htmlToShow.length > 0 ? '#fbbf24' : '#94a3b8'),
+                            fontWeight: 400
+                          }
+                        }, debugInfo)
+                      ),
+                      createElement('div', {
+                        style: {
+                          overflowX: 'auto',
+                          overflowY: currentHeightStyle.overflowY,
+                          maxHeight: currentHeightStyle.maxHeight,
+                          // 🆕 v9.13: 确保内层容器也有正确的盒模型
+                          position: 'relative',
+                          display: 'block',
+                          boxSizing: 'border-box'
+                        }
+                      },
+                        createElement('pre', {
+                          style: {
+                            margin: '0',
+                            padding: '12px 16px',
+                            fontFamily: '"SF Mono", Menlo, Consolas, Monaco, "Courier New", monospace',
+                            fontSize: '12px',
+                            lineHeight: '1.6',
+                            color: '#334155',
+                            background: '#f8fafc',
+                            whiteSpace: 'pre-wrap',
+                            wordBreak: 'break-word',
+                            overflowWrap: 'anywhere',
+                            minWidth: '100%'
+                          },
+                          dangerouslySetInnerHTML: {
+                            __html: (debugInfo ? '<div style="padding:4px 0;margin-bottom:8px;border-bottom:1px dashed #cbd5e1;color:' + (isFormatted ? '#16a34a' : (htmlToShow.length > 0 ? '#ca8a04' : '#94a3b8')) + ';font-size:11px;font-weight:bold;">📊 ' + debugInfo + '</div>' : '') +
+                                     (escapedHtml || '<span style="color:#94a3b8;">（无内容）</span>')
+                          }
+                        })
+                      )
+                    );
+                  }
+
+                  // 🎨 Markdown 模式（默认）：与原逻辑一致，渲染为带样式的 HTML
+                  // ✅ 性能优化：缓存渲染结果，避免每次状态变化都重新解析
+                  var content = htmlSource || rawText || '';
+                  var renderedHtml;
+                  if (msg._cache_markdown && msg._cache_markdown_src === content) {
+                    renderedHtml = msg._cache_markdown;
+                  } else {
+                    renderedHtml = renderMarkdown(content);
+                    msg._cache_markdown = renderedHtml;
+                    msg._cache_markdown_src = content;
+                  }
+
+                  return createElement('div', {
+                    style: commonStyle,
+                    dangerouslySetInnerHTML: { __html: renderedHtml }
+                  });
+                })()
+              )
+            ),
+
+            msg.error && createElement('div', {
+              style: {
+                marginTop: '8px',
+                padding: '8px',
+                background: '#fff0f0',
+                borderRadius: '4px',
+                fontSize: '12px',
+                color: '#e74c3c',
+                border: '1px solid #ffcccc'
+              }
+            }, 
+              createElement('div', null, '❌ ', msg.error),
+              msg.isRetryable && createElement('button', {
+                onClick: function() {
+                  if (msg.onRetry) msg.onRetry();
+                },
+                style: {
+                  marginTop: '6px',
+                  padding: '4px 14px',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  color: '#fff',
+                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  border: 'none',
+                  borderRadius: '12px',
+                  cursor: 'pointer',
+                  boxShadow: '0 2px 6px rgba(102,126,234,0.3)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px'
+                }
+              }, '🔄 重新抓取')
+            )
+          )
+        )
+      );
+    }
+
+    // 主渲染
+    
+    // 🎨 注入动画样式（一次性）
+    if (!document.getElementById('ai-chat-animations')) {
+      var style = document.createElement('style');
+      style.id = 'ai-chat-animations';
+      style.textContent = `
+        @keyframes bounce {
+          0%, 80%, 100% { transform: scale(0); }
+          40% { transform: scale(1); }
+        }
+        
+        @keyframes pulse {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.7; transform: scale(0.95); }
+        }
+        
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(-10px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+      `;
+      document.head.appendChild(style);
+    }
+
+    return createElement(window.FloatingWindowReact, {
+      isOpen: true,
+      width: '100%',
+      height: '100%',  // 占满整个父级浏览器
+      onClose: function() {
+        var c = document.getElementById('ai-chat-window');
+        if (c) {
+          ReactDOM.unmountComponentAtNode(c);
+          if (c.parentNode) c.parentNode.removeChild(c);
+        }
+      },
+      title: '💬 AI 智能协作助手 (aiChatParserPlugin.js)'
+    },
+
+      createElement('div', {
+        style: {
+          height: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          background: BG_COLOR,
+          fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif'
+        }
+      },
+
+        // 头部（参考截图二：aiScreenshotParserPlugin.js 的布局）
+        createElement('div', {
+          style: {
+            background: '#f8fafc',
+            borderBottom: '1px solid #e2e8f0',
+            padding: '12px 16px',
+            flexShrink: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '16px',
+            flexWrap: 'nowrap'
+          }
+        },
+
+          // 左侧：图标 + 标题
+          createElement('div', {
+            style: { 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '10px',
+              flexShrink: 0,
+              minWidth: 0
+            }
+          },
+            renderAIChipIcon(36, {
+              bgColor: '#0a0a1a',
+              chipColor: '#1a1a3e',
+              textColor: '#00ffff',
+              pinColor: '#0066cc',
+              glowColor: 'rgba(0, 255, 255, 0.5)'
+            }),
+            createElement('div', { style: { minWidth: 0 } },
+              createElement('div', {
+                style: { fontSize: '16px', fontWeight: 600, color: '#1e293b', whiteSpace: 'nowrap' }
+              }, 'AI 智能协作助手'),
+              createElement('div', {
+                style: { fontSize: '12px', color: '#64748b', marginTop: '2px', whiteSpace: 'nowrap' }
+              }, '使用 AI 智能协作 让聪明的"人"与我们一同做工')
+            )
+          ),
+
+          // 右侧：模式切换面板 + 设置按钮
+          createElement('div', {
+            style: {
+              position: 'relative',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              flexShrink: 0
+            }
+          },
+            // 模式切换面板
+            createElement('div', {
+              style: {
+                display: 'flex',
+                alignItems: 'center',
+                background: '#f1f5f9',
+                borderRadius: '8px',
+                padding: '2px',
+                gap: '2px'
+              }
+            },
+              createElement('button', {
+                onClick: function() { setCurrentMode(currentMode === 'service' ? 'model' : 'service'); },
+                title: currentMode === 'service' ? '当前：服务卡片模式（点击切换为大模型）' : '当前：大模型模式（点击切换为服务卡片）',
+                style: {
+                  padding: '5px 12px',
+                  background: '#fff',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '6px',
+                  color: '#334155',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  whiteSpace: 'nowrap',
+                  boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                  transition: 'all 0.15s ease'
+                }
+              },
+                currentMode === 'service'
+                  ? createElement('span', null, '🕷️ ', '服务')
+                  : createElement('span', null, '🧠 ', '大模型'),
+                createElement('span', { style: { fontSize: '8px', color: '#94a3b8', transform: 'scale(0.85)', display: 'inline-block' } }, '↔')
+              ),
+
+              currentMode === 'service' && createElement('div', {
+                style: { display: 'flex', alignItems: 'center', gap: '6px', flex: 1, minWidth: 0 }
+              },
+                createElement('div', { style: { flex: 1, position: 'relative', minWidth: 0 } },
+                  createElement('input', {
+                    type: 'text',
+                    value: selectedServiceCard ? selectedServiceCard.name : serviceCardSearch,
+                    onChange: function(e) { setServiceCardSearch(e.target.value); },
+                    onFocus: function() { setShowServiceCardDropdown(true); fetchServiceBookmarks(); },
+                    onBlur: function() { setTimeout(function() { setShowServiceCardDropdown(false); }, 200); },
+                    onKeyDown: function(e) { if (e.key === 'Escape') setShowServiceCardDropdown(false); },
+                    placeholder: '选择爬虫卡片...',
+                    readOnly: !showServiceCardDropdown,
+                    style: {
+                      width: '100%',
+                      padding: '5px 10px',
+                      border: '1.5px solid ' + (showServiceCardDropdown ? '#6366f1' : '#e2e8f0'),
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                      outline: 'none',
+                      cursor: 'pointer',
+                      transition: 'border-color 0.15s',
+                      background: '#fff'
+                    }
+                  }),
+                  showServiceCardDropdown && createElement('div', {
+                    style: {
+                      position: 'absolute',
+                      top: '100%',
+                      left: 0,
+                      right: 0,
+                      maxHeight: '180px',
+                      overflowY: 'auto',
+                      background: '#fff',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '6px',
+                      boxShadow: '0 4px 16px rgba(0,0,0,0.1)',
+                      zIndex: 1000,
+                      marginTop: '3px'
+                    }
+                  },
+                    serviceBookmarks.filter(function(bm) { return bm.category === 'ai-chat'; }).length === 0
+                      ? createElement('div', { style: { padding: '10px', textAlign: 'center', color: '#94a3b8', fontSize: '11px' } }, '暂无 AI Chat 卡片')
+                      : serviceBookmarks.filter(function(bm) { return bm.category === 'ai-chat'; }).map(function(bm) {
+                          var realIndex = serviceBookmarks.indexOf(bm);
+                          var isSelected = selectedServiceCard && selectedServiceCard.index === realIndex;
+                          return createElement('div', {
+                            key: realIndex,
+                            onMouseDown: function() { selectServiceCard(realIndex); },
+                            style: {
+                              padding: '7px 10px',
+                              borderBottom: '1px solid #f1f5f9',
+                              background: isSelected ? '#e0e7ff' : '#fff',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              fontSize: '11px'
+                            }
+                          },
+                            createElement('span', null, bm.previewOnly ? '' : '🕷️'),
+                            createElement('span', { style: { flex: 1, fontWeight: isSelected ? 'bold' : 'normal', color: isSelected ? '#2563eb' : '#1e293b' } }, bm.name),
+                            createElement('span', {
+                              style: { padding: '1px 5px', borderRadius: '8px', fontSize: '9px', background: isSelected ? '#c7d2fe' : '#f1f5f9', color: isSelected ? '#4f46e5' : '#64748b' }
+                            }, bm.category || '其他')
+                          );
+                        })
+                  ),
+                  selectedServiceCard && createElement('button', {
+                    onClick: clearServiceCardSelection,
+                    style: { position: 'absolute', right: '4px', top: '50%', transform: 'translateY(-50%)', padding: '2px 6px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer', fontSize: '9px', fontWeight: 'bold' }
+                  }, '✕')
+                ),
+                createElement('button', {
+                  onClick: async function() {
+                    if (electronApiStatus !== 'connected') {
+                      alert('⚠️ 请先连接到服务器端！');
+                      return;
+                    }
+
+                    try {
+                      var response = await fetch('http://localhost:3000/api/current-service-card');
+                      var data = await response.json();
+
+                      if (data.found && data.index >= 0) {
+                        console.log('[AI-Chat] 📍 识别到后台服务卡片:', data.name, '[索引:', data.index + ']');
+
+                        // 自动选择该服务卡片
+                        selectServiceCard(data.index);
+
+                        alert('✅ 已识别后台服务：' + data.name + '\n索引：' + data.index + '\n使用时间：' + (data.time ? new Date(data.time).toLocaleString() : '未知'));
+                      } else {
+                        alert('⚠️ 未找到后台服务卡片信息！\n可能原因：\n1. 服务器端尚未发送过消息\n2. 服务卡片信息已重置\n\n请先在服务器端发送一条消息，然后再次尝试。');
+                      }
+                    } catch (error) {
+                      console.error('[AI-Chat] ❌ 识别后台服务失败:', error);
+                      alert('❌ 识别后台服务失败：' + error.message);
+                    }
+                  },
+                  style: {
+                    padding: '4px 10px',
+                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontSize: '10px',
+                    fontWeight: 600,
+                    whiteSpace: 'nowrap',
+                    flexShrink: 0,
+                    boxShadow: '0 2px 4px rgba(102, 126, 234, 0.3)',
+                    transition: 'all 0.15s ease'
+                  },
+                  title: '识别后台当前使用的服务卡片并自动选择',
+                  onMouseEnter: function(e) { e.target.style.transform = 'scale(1.05)'; e.target.style.boxShadow = '0 4px 8px rgba(102, 126, 234, 0.4)'; },
+                  onMouseLeave: function(e) { e.target.style.transform = 'scale(1)'; e.target.style.boxShadow = '0 2px 4px rgba(102, 126, 234, 0.3)'; }
+                }, '🔍 识别后台'),
+                electronApiStatus === 'connected'
+                  ? createElement('span', { style: { fontSize: '10px', color: '#16a34a', fontWeight: 600, whiteSpace: 'nowrap', flexShrink: 0 } }, '⚡已连')
+                  : createElement('span', { style: { fontSize: '10px', color: '#dc2626', fontWeight: 600, whiteSpace: 'nowrap', flexShrink: 0 } }, '⚠未连')
+              ),
+
+              currentMode === 'model' && createElement('div', {
+                style: { display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'nowrap' }
+              },
+                createElement('span', {
+                  style: {
+                    padding: '4px 8px',
+                    background: selectedModel === 'fangzhou' ? '#ecfeff' : (selectedModel === 'qwen' ? '#fef3c7' : '#ede9fe'),
+                    border: selectedModel === 'fangzhou' ? '1px solid #a5f3fc' : (selectedModel === 'qwen' ? '1px solid #fcd34d' : '1px solid #c4b5fd'),
+                    borderRadius: '6px',
+                    color: selectedModel === 'fangzhou' ? '#0891b2' : (selectedModel === 'qwen' ? '#d97706' : '#7c3aed'),
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    whiteSpace: 'nowrap'
+                  }
+                }, selectedModel === 'fangzhou' ? '🌋方舟' : (selectedModel === 'qwen' ? '💬通义' : '🧠智谱')),
+                createElement('span', {
+                  style: {
+                    padding: '4px 8px',
+                    background: (selectedModel === 'zhipu') ? '#d1fae5' : (selectedModel === 'fangzhou' ? '#f0fdf4' : '#fef3c7'),
+                    border: (selectedModel === 'zhipu') ? '1px solid #6ee7b7' : (selectedModel === 'fangzhou' ? '1px solid #86efac' : '1px solid #fcd34d'),
+                    borderRadius: '6px',
+                    color: (selectedModel === 'zhipu') ? '#059669' : (selectedModel === 'fangzhou' ? '#16a34a' : '#d97706'),
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap'
+                  },
+                  onClick: function(e) { e.stopPropagation(); setShowModelSelector(!showModelSelector); },
+                  title: '点击切换模型版本'
+                }, (selectedModel === 'zhipu' ? zhipuModelVersion : (selectedModel === 'fangzhou' ? fangzhouModelVersion : qwenModelVersion)), (selectedModel === 'zhipu' || selectedModel === 'fangzhou') ? '✅' : ''),
+                createElement('span', {
+                  style: {
+                    padding: '4px 8px',
+                    background: '#dbeafe',
+                    border: '1px solid #93c5fd',
+                    borderRadius: '6px',
+                    color: '#2563eb',
+                    fontSize: '10px',
+                    fontWeight: 600,
+                    maxWidth: '120px',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap'
+                  },
+                  title: activeKeyName ? ('API Key: ' + activeKeyName) : '未命名'
+                }, '🔑 ', activeKeyName || '未命名')
+              ),
+            ),
+
+            // 设置按钮
+            createElement('button', {
+              onClick: function() { setShowSettingsMenu(!showSettingsMenu); },
+              title: 'AI 设置',
+              style: {
+                padding: '6px 10px',
+                background: showSettingsMenu ? '#e0e7ff' : '#f1f5f9',
+                border: '1px solid #cbd5e1',
+                borderRadius: '8px',
+                color: '#475569',
+                fontSize: '16px',
+                cursor: 'pointer'
+              }
+            }, '⚙️')
+          )
+        ),
+
+        // 模型选择器下拉菜单（仅在大模型模式下显示）
+        showModelSelector && currentMode === 'model' && createElement('div', {
+          style: {
+            position: 'absolute',
+            top: '45px',
+            right: '16px',
+            zIndex: 999,
+            minWidth: '260px',
+            background: '#fff',
+            border: '1px solid #e2e8f0',
+            borderRadius: '12px',
+            boxShadow: '0 10px 40px rgba(0,0,0,0.15)',
+            padding: '12px'
+          },
+          onClick: function(e) { e.stopPropagation(); }
+        },
+          createElement('div', {
+            style: {
+              fontSize: '14px',
+              fontWeight: 700,
+              color: '#1e293b',
+              marginBottom: '10px',
+              paddingBottom: '8px',
+              borderBottom: '1px solid #e2e8f0'
+            }
+          }, '🧠 选择模型版本'),
+          
+          ['glm-4.6v-flash', 'glm-4v-flash', 'glm-4v-plus'].map(function(m) {
+            return createElement('button', {
+              key: m,
+              onClick: function() {
+                setZhipuModelVersion(m);
+                setSelectedModel('zhipu');
+                setShowModelSelector(false);
+                if (window.AIChatDB) window.AIChatDB.setSetting('ai_parser_model', 'zhipu');
+                var models = {};
+                try { var _m = window.AIChatDB ? window.AIChatDB.getSetting('ai_parser_models') : null; Object.assign(models, _m ? (typeof _m === 'string' ? JSON.parse(_m) : _m) : {}); } catch(e) {}
+                models.zhipu = m;
+                if (window.AIChatDB) window.AIChatDB.setSetting('ai_parser_models', JSON.stringify(models));
+              },
+              style: {
+                width: '100%',
+                padding: '8px 12px',
+                marginBottom: '4px',
+                background: (selectedModel === 'zhipu' && zhipuModelVersion === m) ? '#dbeafe' : '#f8fafc',
+                border: (selectedModel === 'zhipu' && zhipuModelVersion === m) ? '2px solid #2563eb' : '1px solid #e2e8f0',
+                borderRadius: '8px',
+                color: (selectedModel === 'zhipu' && zhipuModelVersion === m) ? '#2563eb' : '#475569',
+                cursor: 'pointer',
+                fontSize: '13px',
+                textAlign: 'left',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center'
+              }
+            }, 
+              '🧠 ',
+              m,
+              (selectedModel === 'zhipu' && zhipuModelVersion === m) ? '✅' : ''
+            );
+          }),
+
+          createElement('div', {
+            style: {
+              fontSize: '14px',
+              fontWeight: 700,
+              color: '#1e293b',
+              marginTop: '8px',
+              marginBottom: '10px',
+              paddingTop: '8px',
+              borderTop: '1px solid #e2e8f0'
+            }
+          }, '☁️ 阿里云通义千问'),
+          
+          ['qwen-vl-max-latest', 'qwen-vl-plus-latest', 'qwen-vl-max'].map(function(m) {
+            return createElement('button', {
+              key: m,
+              onClick: function() {
+                setQwenModelVersion(m);
+                setSelectedModel('qwen');
+                setShowModelSelector(false);
+                if (window.AIChatDB) window.AIChatDB.setSetting('ai_parser_model', 'qwen');
+                var models = {};
+                try { var _m = window.AIChatDB ? window.AIChatDB.getSetting('ai_parser_models') : null; Object.assign(models, _m ? (typeof _m === 'string' ? JSON.parse(_m) : _m) : {}); } catch(e) {}
+                models.tongyi = m;
+                if (window.AIChatDB) window.AIChatDB.setSetting('ai_parser_models', JSON.stringify(models));
+              },
+              style: {
+                width: '100%',
+                padding: '8px 12px',
+                marginBottom: '4px',
+                background: (selectedModel === 'qwen' && qwenModelVersion === m) ? '#dbeafe' : '#f8fafc',
+                border: (selectedModel === 'qwen' && qwenModelVersion === m) ? '2px solid #2563eb' : '1px solid #e2e8f0',
+                borderRadius: '8px',
+                color: (selectedModel === 'qwen' && qwenModelVersion === m) ? '#2563eb' : '#475569',
+                cursor: 'pointer',
+                fontSize: '13px',
+                textAlign: 'left',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center'
+              }
+            }, 
+              '☁️ ',
+              m,
+              (selectedModel === 'qwen' && qwenModelVersion === m) ? '✅' : ''
+            );
+          }),
+
+          createElement('div', {
+            style: {
+              fontSize: '14px',
+              fontWeight: 700,
+              color: '#1e293b',
+              marginTop: '8px',
+              marginBottom: '10px',
+              paddingTop: '8px',
+              borderTop: '1px solid #e2e8f0'
+            }
+          }, '🚀 火山方舟大模型'),
+          
+          ['doubao-seed-2-0-lite-260428', 'doubao-seed-2-0-pro-260215', 'doubao-seed-2-0-mini-260428', 'doubao-seed-2-0-code-preview-260215'].map(function(m) {
+            return createElement('button', {
+              key: m,
+              onClick: function() {
+                setFangzhouModelVersion(m);
+                setSelectedModel('fangzhou');
+                setShowModelSelector(false);
+                if (window.AIChatDB) window.AIChatDB.setSetting('ai_parser_model', 'fangzhou');
+                var models = {};
+                try { var _m = window.AIChatDB ? window.AIChatDB.getSetting('ai_parser_models') : null; Object.assign(models, _m ? (typeof _m === 'string' ? JSON.parse(_m) : _m) : {}); } catch(e) {}
+                models.fangzhou = m;
+                if (window.AIChatDB) window.AIChatDB.setSetting('ai_parser_models', JSON.stringify(models));
+              },
+              style: {
+                width: '100%',
+                padding: '8px 12px',
+                marginBottom: '4px',
+                background: (selectedModel === 'fangzhou' && fangzhouModelVersion === m) ? '#dbeafe' : '#f8fafc',
+                border: (selectedModel === 'fangzhou' && fangzhouModelVersion === m) ? '2px solid #2563eb' : '1px solid #e2e8f0',
+                borderRadius: '8px',
+                color: (selectedModel === 'fangzhou' && fangzhouModelVersion === m) ? '#2563eb' : '#475569',
+                cursor: 'pointer',
+                fontSize: '13px',
+                textAlign: 'left',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center'
+              }
+            }, 
+              '🚀 ',
+              m,
+              (selectedModel === 'fangzhou' && fangzhouModelVersion === m) ? '✅' : ''
+            );
+          })
+        ),
+
+        // 设置下拉菜单
+        showSettingsMenu && createElement('div', {
+          style: {
+            position: 'absolute',
+            top: '45px',
+            right: '8px',
+            zIndex: 998,
+            minWidth: '200px',
+            background: '#fff',
+            border: '1px solid #e2e8f0',
+            borderRadius: '12px',
+            boxShadow: '0 10px 40px rgba(0,0,0,0.15)',
+            overflow: 'hidden'
+          },
+          onClick: function(e) { e.stopPropagation(); }
+        },
+          [
+            { icon: '🔑', text: 'API Key 设定', action: function() { window.AiApiKeyManager && window.AiApiKeyManager.open(); } },
+            { icon: '📝', text: 'Prompt 管理', action: function() { window.AiPromptManager && window.AiPromptManager.open(); } },
+            { icon: '🔲', text: '数据浏览器 (IndexedDB)', action: function() {
+                if (window.AIChatDataBrowser) {
+                  window.AIChatDataBrowser.open();
+                } else {
+                  alert('⚠️ 数据浏览器模块未加载！\n\n请刷新页面后重试。');
+                }
+              }},
+            { icon: '📋', text: 'JSON 数据浏览', action: function() {
+                console.log('[AI-Chat] 📋 用户点击了"JSON数据浏览"菜单');
+                console.log('[AI-Chat] 🔍 检查 window.JSONDataBrowser:', window.JSONDataBrowser);
+
+                if (window.JSONDataBrowser) {
+                  // 检查是否已初始化
+                  if (window.JSONDataBrowser._initialized === false) {
+                    console.warn('[AI-Chat] ⚠️ JSONDataBrowser 存在但未完成初始化');
+                    alert('⚠️ JSON数据浏览器正在初始化中...\n\n错误: ' + (window.JSONDataBrowser._error || '未知原因') + '\n\n请刷新页面后重试。');
+                    return;
+                  }
+
+                  console.log('[AI-Chat] ✅ 调用 JSONDataBrowser.open()');
+                  try {
+                    window.JSONDataBrowser.open();
+                  } catch (err) {
+                    console.error('[AI-Chat] ❌ 调用失败:', err);
+                    alert('❌ 打开JSON数据浏览器时发生错误！\n\n' + err.message);
+                  }
+                } else {
+                  console.error('[AI-Chat] ❌ window.JSONDataBrowser 不存在！');
+                  alert('❌ JSON数据浏览器模块未加载！\n\n可能的原因：\n1. 脚本文件加载失败\n2. 浏览器缓存问题\n3. 网络连接问题\n\n解决方案：\n• 按 Ctrl+Shift+R (Windows) 或 Cmd+Shift+R (Mac) 强制刷新页面\n• 打开浏览器控制台查看详细错误信息');
+                }
+              }}
+          ].map(function(item, idx) {
+            return createElement('button', {
+              key: idx,
+              onClick: function() { item.action(); setShowSettingsMenu(false); },
+              style: {
+                width: '100%',
+                padding: '12px 16px',
+                background: 'transparent',
+                border: 'none',
+                borderBottom: idx < 2 ? '1px solid #f1f5f9' : 'none',
+                color: '#475569',
+                cursor: 'pointer',
+                fontSize: '13px',
+                textAlign: 'left',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px'
+              }
+            }, item.icon, item.text);
+          })
+        ),
+
+        // 状态提示
+        status && createElement('div', {
+          textAlign: 'center',
+          padding: '8px 16px',
+          margin: '0 12px',
+          background: status.ok ? '#e8f5e9' : '#ffebee',
+          borderRadius: '6px',
+          color: status.ok ? GREEN : '#e74c3c',
+          fontSize: '12px',
+          fontWeight: 500,
+          flexShrink: 0
+        }, status.msg),
+
+        // ============================================================
+        // 父阶区块：包含消息区和输入区（占满剩余空间，有小边距）
+        // ============================================================
+        createElement('div', {
+          style: {
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            margin: '10px 12px 12px 12px',
+            gap: '8px',
+            minHeight: 0  // 重要：允许flex子元素收缩
+          }
+        },
+
+          // ========================================================
+          // 子区块1：消息显示区（占 4/5）
+          // ========================================================
+          createElement('div', {
+            style: {
+              flex: 4,  // 占 4 份
+              overflowY: 'auto',
+              background: BG_COLOR,
+              borderRadius: '20px',
+              padding: '12px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '8px',
+              boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.06)'
+            }
+          },
+
+            // 空状态
+            messages.length === 0 && !status && createElement('div', {
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'center',
+              alignItems: 'center',
+              color: '#888',
+              gap: '12px'
+            },
+              createElement('div', { style: { fontSize: '64px', opacity: 0.6 } }, '💬'),
+              createElement('div', {
+                style: { fontSize: '16px', fontWeight: 500, color: TEXT_DARK, marginBottom: '4px' }
+              }, '开始与 AI 对话'),
+              createElement('div', {
+                style: { fontSize: '13px', textAlign: 'center', maxWidth: '260px', lineHeight: '1.6' }
+              }, '上传截图并输入指令\nAI 会帮你智能识别表格数据')
+            ),
+
+            // 消息列表
+            messages.map(function(msg) { return renderBubble(msg); }),
+
+            createElement('div', { ref: msgEndRef })
+          ),
+
+          // ========================================================
+          // 子区块2：输入区域（占 1/5）
+          // ========================================================
+          createElement('div', {
+            style: {
+              flex: 1,  // 占 1 份
+              background: '#ffffff',
+              borderRadius: '8px',
+              border: '1px solid #e2e8f0',
+              padding: '14px 16px',  // 增加内边距，防止内容溢出
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '10px',  // 增加间距
+              boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+              minHeight: 0,
+              maxHeight: '100%',
+              overflow: 'visible'  // 允许内容可见，不裁剪
+            }
+          },
+
+            // ============================================================
+            // 输入工具栏（单行布局：工具 | 缩略图 | 输入框 | 发送）
+            // ============================================================
+            createElement('div', {
+              style: {
+                display: 'flex',
+                alignItems: 'stretch',
+                gap: '10px',  // 增加间距
+                flex: 1,
+                minHeight: 0,
+                position: 'relative'
+              }
+            },
+
+              // ============================================================
+              // 左侧：工具按钮区（checkbox + caption 样式）
+              // ============================================================
+              createElement('div', {
+                style: {
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '5px',  // 减少间距
+                  alignItems: 'flex-start',
+                  flexShrink: 0,
+                  justifyContent: 'flex-start',
+                  width: '95px',
+                  padding: '4px 4px'  // 减少上下padding
+                }
+              },
+
+                // ========== 按钮1: 上传图片 ==========
+                createElement('button', {
+                  onClick: function() { 
+                    if (fileRef.current) fileRef.current.click();
+                  },
+                  title: '上传图片',
+                  style: {
+                    width: '100%',
+                    height: '28px',  // 减少高度
+                    background: '#f1f5f9',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontSize: '15px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }
+                }, '📷'),
+
+                createElement('input', {
+                  ref: fileRef,
+                  type: 'file',
+                  accept: 'image/*',
+                  multiple: true,
+                  style: { display: 'none' },
+                  onChange: handleFiles
+                }),
+
+                // ========== 按钮2: Prompt模板 ==========
+                createElement('button', {
+                  onClick: function() { setShowPromptSelector(!showPromptSelector); },
+                  title: '选择 Prompt 模板',
+                  style: {
+                    width: '100%',
+                    height: '26px',  // 减少高度
+                    background: showPromptSelector ? '#dbeafe' : '#f1f5f9',
+                    border: showPromptSelector ? '2px solid #3b82f6' : '1px solid #e2e8f0',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    color: showPromptSelector ? '#2563eb' : '#64748b',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    letterSpacing: '-0.3px'
+                  }
+                }, 'Prompt'),
+
+                // ========== Checkbox 1: AI响应 ==========
+                createElement('div', {
+                  style: {
+                    width: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '3px'  // 减少间距
+                  }
+                },
+                  createElement('input', {
+                    type: 'checkbox',
+                    checked: aiEnabled,
+                    onChange: function(e) {
+                      setAiEnabled(e.target.checked);
+                      setStatus({
+                        ok: true,
+                        msg: e.target.checked ? '✅ AI已开启 - 将调用AI处理消息' : '❌ AI已关闭 - 直接发送消息'
+                      });
+                      setTimeout(function() { setStatus(null); }, 2000);
+                    },
+                    style: {
+                      width: '13px',  // 稍微缩小
+                      height: '13px',
+                      cursor: 'pointer',
+                      accentColor: '#3b82f6',
+                      flexShrink: 0
+                    }
+                  }),
+                  createElement('span', {
+                    onClick: function(e) {
+                      e.stopPropagation();
+                      alert('🤖 AI响应开关\n\n✅ 勾选：消息会发送给AI大模型处理\n❌ 取消：消息直接发送，不经过AI\n\n适用于：需要快速发送原始文本时');
+                    },
+                    title: '点击查看说明',
+                    style: {
+                      fontSize: '10px',
+                      fontWeight: 600,
+                      color: '#3b82f6',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                      lineHeight: '1.2'
+                    }
+                  }, 'AI响应')
+                ),
+
+                // ========== Checkbox 2: 联网搜索 ==========
+                createElement('div', {
+                  style: {
+                    width: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '3px'  // 减少间距
+                  }
+                },
+                  createElement('input', {
+                    type: 'checkbox',
+                    checked: webSearchEnabled,
+                    disabled: selectedModel !== 'fangzhou',
+                    onChange: function(e) {
+                      setWebSearchEnabled(e.target.checked);
+                      try {
+                        if (window.AIChatDB) window.AIChatDB.setSetting('ai_chat_web_search', e.target.checked);
+                      } catch(err) {}
+                      setStatus({
+                        ok: true,
+                        msg: e.target.checked ? '✅ 联网搜索已开启 - AI将自动搜索网络信息' : '❌ 联网搜索已关闭 - AI仅基于已有知识回答'
+                      });
+                      setTimeout(function() { setStatus(null); }, 2000);
+                    },
+                    style: {
+                      width: '13px',  // 稍微缩小
+                      height: '13px',
+                      cursor: selectedModel === 'fangzhou' ? 'pointer' : 'not-allowed',
+                      accentColor: selectedModel === 'fangzhou' ? '#10b981' : '#d1d5db',
+                      opacity: selectedModel === 'fangzhou' ? 1 : 0.5,
+                      flexShrink: 0
+                    }
+                  }),
+                  createElement('span', {
+                    onClick: function(e) {
+                      e.stopPropagation();
+                      if (selectedModel !== 'fangzhou') {
+                        alert('🌐 联网搜索\n\n⚠️ 当前模型不支持\n\n仅火山方舟(doubao)模型支持联网搜索功能。\n请切换到方舟模型后使用。');
+                      } else {
+                        alert('🌐 联网搜索开关\n\n✅ 勾选：AI将自动联网查询实时信息\n❌ 取消：AI仅基于训练数据回答\n\n注意：会消耗额外token，建议配合经济模式使用');
+                      }
+                    },
+                    title: '点击查看说明',
+                    style: {
+                      fontSize: '10px',
+                      fontWeight: 600,
+                      color: selectedModel === 'fangzhou' ? '#10b981' : '#9ca3af',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                      lineHeight: '1.2'
+                    }
+                  }, '联网搜索')
+                ),
+
+                // ========== Checkbox 3: 节省模式 ==========
+                createElement('div', {
+                  style: {
+                    width: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '3px'  // 减少间距
+                  }
+                },
+                  createElement('input', {
+                    type: 'checkbox',
+                    checked: economyMode,
+                    disabled: !(selectedModel === 'fangzhou' && webSearchEnabled),
+                    onChange: function(e) {
+                      setEconomyMode(e.target.checked);
+                      try {
+                        if (window.AIChatDB) window.AIChatDB.setSetting('ai_chat_economy_mode', e.target.checked);
+                      } catch(err) {}
+                      setStatus({
+                        ok: true,
+                        msg: e.target.checked ? '💰 经济模式已开启 - 节省约50% Token消耗' : '🎯 质量模式已开启 - 深度思考+全面搜索'
+                      });
+                      setTimeout(function() { setStatus(null); }, 2000);
+                    },
+                    style: {
+                      width: '13px',  // 稍微缩小
+                      height: '13px',
+                      cursor: (selectedModel === 'fangzhou' && webSearchEnabled) ? 'pointer' : 'not-allowed',
+                      accentColor: (selectedModel === 'fangzhou' && webSearchEnabled) ? '#f59e0b' : '#d1d5db',
+                      opacity: (selectedModel === 'fangzhou' && webSearchEnabled) ? 1 : 0.5,
+                      flexShrink: 0
+                    }
+                  }),
+                  createElement('span', {
+                    onClick: function(e) {
+                      e.stopPropagation();
+                      if (!(selectedModel === 'fangzhou' && webSearchEnabled)) {
+                        alert('💰 节省模式\n\n⚠️ 需要先满足条件：\n1. 使用火山方舟模型\n2. 开启联网搜索\n\n满足后可启用此功能。');
+                      } else {
+                        alert('💰 节省Token模式\n\n✅ 勾选：关闭深度思考+只搜1次+简洁回答\n   预计节省50%+ token消耗\n\n❌ 取消：完整深度思考+搜3次+详细回答\n   回答更全面但消耗更多');
+                      }
+                    },
+                    title: '点击查看说明',
+                    style: {
+                      fontSize: '10px',
+                      fontWeight: 600,
+                      color: (selectedModel === 'fangzhou' && webSearchEnabled) ? '#f59e0b' : '#9ca3af',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                      lineHeight: '1.2'
+                    }
+                  }, '节省模式')
+                )
+
+              ),
+
+              // Prompt 模板选择器（浮动显示）
+              showPromptSelector && createElement('div', {
+                style: {
+                  position: 'absolute',
+                  left: '42px',
+                  bottom: '10px',
+                  zIndex: 1000,
+                  minWidth: '300px',
+                  maxHeight: '260px',
+                  background: '#fff',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '12px',
+                  boxShadow: '0 10px 40px rgba(0,0,0,0.15)',
+                  overflow: 'hidden',
+                  display: 'flex',
+                  flexDirection: 'column'
+                },
+                onClick: function(e) { e.stopPropagation(); }
+              },
+
+                // 标题栏
+                createElement('div', {
+                  style: {
+                    padding: '8px 12px',
+                    background: '#f8fafc',
+                    borderBottom: '1px solid #e2e8f0',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center'
+                  }
+                },
+                  createElement('span', {
+                    style: { fontSize: '12px', fontWeight: 700, color: '#1e293b' }
+                  }, '📋 选择 Prompt 模板'),
+                  createElement('button', {
+                    onClick: function() { setShowPromptSelector(false); },
+                    style: {
+                      width: '18px',
+                      height: '18px',
+                      background: 'transparent',
+                      border: 'none',
+                      cursor: 'pointer',
+                      fontSize: '14px',
+                      color: '#94a3b8',
+                      padding: 0,
+                      lineHeight: '1'
+                    }
+                  }, '×')
+                ),
+
+                // 模板列表
+                createElement('div', {
+                  style: { flex: 1, overflowY: 'auto', padding: '6px' }
+                },
+                  promptTemplates.length > 0 ? 
+                    promptTemplates.map(function(tpl, idx) {
+                      return createElement('button', {
+                        key: idx,
+                        onClick: function() {
+                          setInputText(tpl.content || tpl.prompt || '');
+                          setShowPromptSelector(false);
+                        },
+                        style: {
+                          width: '100%',
+                          padding: '8px 10px',
+                          marginBottom: '4px',
+                          background: '#fff',
+                          border: '1px solid #e2e8f0',
+                          borderRadius: '6px',
+                          textAlign: 'left',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s',
+                          display: 'block'
+                        },
+                        onMouseEnter: function(e) { e.target.style.background = '#f8fafc'; },
+                        onMouseLeave: function(e) { e.target.style.background = '#fff'; }
+                      },
+                        createElement('div', {
+                          style: { fontSize: '12px', fontWeight: 600, color: '#334155', marginBottom: '2px' }
+                        }, tpl.name || ('模板 #' + (idx + 1))),
+                        createElement('div', {
+                          style: { fontSize: '10px', color: '#64748b', lineHeight: '1.3', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }
+                        }, (tpl.content || tpl.prompt || '').substring(0, 70) + ((tpl.content || tpl.prompt || '').length > 70 ? '...' : ''))
+                      );
+                    })
+                  :
+                  createElement('div', {
+                    style: {
+                      padding: '20px',
+                      textAlign: 'center',
+                      color: '#94a3b8',
+                      fontSize: '12px'
+                    }
+                  },
+                    createElement('div', { style: { fontSize: '28px', marginBottom: '6px', opacity: 0.5 } }, '📝'),
+                    '暂无模板',
+                    createElement('br'),
+                    createElement('span', { style: { fontSize: '10px', color: '#cbd5e1' } }, '请在设置中添加')
+                  )
+                )
+              ),
+
+              // ============================================================
+              // 中间左侧：缩略图预览区（与输入框左右相邻）
+              // ============================================================
+              images.length > 0 && createElement('div', {
+                style: {
+                  display: 'flex',
+                  gap: '6px',
+                  alignItems: 'center',
+                  flexShrink: 0,
+                  padding: '4px'
+                }
+              },
+                images.map(function(img, idx) {
+                  return createElement('div', {
+                    key: img.id || idx,
+                    style: { 
+                      position: 'relative',
+                      flexShrink: 0
+                    }
+                  },
+                    createElement('img', {
+                      src: img.url,
+                      alt: img.name || ('图片' + (idx+1)),
+                      title: (img.name || ('图片' + (idx+1))) + '\n点击预览大图',
+                      style: {
+                        width: '60px',
+                        height: '60px',
+                        objectFit: 'cover',
+                        borderRadius: '8px',
+                        border: '2px solid #3b82f6',
+                        cursor: 'pointer',
+                        display: 'block',
+                        boxShadow: '0 2px 8px rgba(59, 130, 246, 0.2)',
+                        transition: 'transform 0.2s ease'
+                      },
+                      onClick: function() { 
+                        setPreviewImage(img); 
+                      },
+                      onMouseEnter: function(e) {
+                        e.target.style.transform = 'scale(1.05)';
+                        e.target.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.3)';
+                      },
+                      onMouseLeave: function(e) {
+                        e.target.style.transform = 'scale(1)';
+                        e.target.style.boxShadow = '0 2px 8px rgba(59, 130, 246, 0.2)';
+                      }
+                    }),
+                    // 删除按钮
+                    createElement('button', {
+                      onClick: function(e) {
+                        e.stopPropagation();
+                        removeImage(idx);
+                      },
+                      title: '移除图片',
+                      style: {
+                        position: 'absolute',
+                        top: '-6px',
+                        right: '-6px',
+                        width: '20px',
+                        height: '20px',
+                        borderRadius: '50%',
+                        background: '#ef4444',
+                        color: '#fff',
+                        border: '2px solid #fff',
+                        cursor: 'pointer',
+                        fontSize: '12px',
+                        fontWeight: 'bold',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        lineHeight: '1',
+                        boxShadow: '0 2px 6px rgba(239, 68, 68, 0.4)',
+                        zIndex: 10,
+                        transition: 'all 0.2s ease'
+                      },
+                      onMouseEnter: function(e) {
+                        e.target.style.background = '#dc2626';
+                        e.target.style.transform = 'scale(1.1)';
+                      },
+                      onMouseLeave: function(e) {
+                        e.target.style.background = '#ef4444';
+                        e.target.style.transform = 'scale(1)';
+                      }
+                    }, '×')
+                  );
+                })
+              ),
+
+              // 图片预览浮动窗口（使用 Portal 渲染到 body，避免父容器影响）
+              previewImage && ReactDOM.createPortal(
+                createElement(window.FloatingWindowReact, {
+                  isOpen: true,
+                  width: '700px',
+                  height: '600px',
+                  onClose: function() { setPreviewImage(null); },
+                  title: '📷 ' + (previewImage.name || '图片预览')
+                },
+                  createElement('div', {
+                    style: {
+                      width: '100%',
+                      height: '100%',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      background: '#1e293b',
+                      borderRadius: '8px',
+                      overflow: 'hidden'
+                    }
+                  },
+                    // 工具栏
+                    createElement('div', {
+                      style: {
+                        padding: '10px 16px',
+                        background: '#0f172a',
+                        borderBottom: '1px solid #334155',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between'
+                      }
+                    },
+                      createElement('span', {
+                        style: {
+                          color: '#e2e8f0',
+                          fontSize: '13px',
+                          fontWeight: 500
+                        }
+                      }, '🖼️ 图片预览'),
+                      
+                      createElement('div', {
+                        style: {
+                          display: 'flex',
+                          gap: '8px',
+                          alignItems: 'center'
+                        }
+                      },
+                        createElement('button', {
+                          onClick: function() {
+                            var link = document.createElement('a');
+                            link.href = previewImage.url;
+                            link.download = previewImage.name || 'image.png';
+                            link.click();
+                          },
+                          title: '下载图片',
+                          style: {
+                            padding: '6px 12px',
+                            background: '#3b82f6',
+                            border: 'none',
+                            borderRadius: '6px',
+                            color: '#fff',
+                            cursor: 'pointer',
+                            fontSize: '12px',
+                            fontWeight: 500,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            transition: 'all 0.2s ease'
+                          },
+                          onMouseEnter: function(e) {
+                            e.target.style.background = '#2563eb';
+                          },
+                          onMouseLeave: function(e) {
+                            e.target.style.background = '#3b82f6';
+                          }
+                        }, '⬇️ 下载')
+                      )
+                    ),
+
+                    // 图片显示区域
+                    createElement('div', {
+                      style: {
+                        flex: 1,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: '20px',
+                        overflow: 'auto'
+                      }
+                    },
+                      createElement('img', {
+                        src: previewImage.url,
+                        alt: previewImage.name || '预览图片',
+                        style: {
+                          maxWidth: '100%',
+                          maxHeight: '100%',
+                          objectFit: 'contain',
+                          borderRadius: '8px',
+                          boxShadow: '0 10px 40px rgba(0,0,0,0.5)'
+                        }
+                      })
+                    ),
+
+                    // 底部信息栏
+                    createElement('div', {
+                      style: {
+                        padding: '12px 16px',
+                        background: '#0f172a',
+                        borderTop: '1px solid #334155',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between'
+                      }
+                    },
+                      createElement('span', {
+                        style: {
+                          color: '#94a3b8',
+                          fontSize: '12px'
+                        }
+                      }, '📎 ', previewImage.name || ('图片')),
+
+                      createElement('span', {
+                        style: {
+                          color: '#64748b',
+                          fontSize: '11px'
+                        }
+                      }, '可拖动此窗口 | 点击关闭按钮退出')
+                    )
+                  )
+                ),
+                document.body  // ← 渲染到 body，脱离父容器！
+              ),
+
+              // ============================================================
+              // 中间右侧：输入框（自适应宽度）
+              // ============================================================
+              createElement('textarea', {
+                value: inputText,
+                onChange: function(e) { setInputText(e.target.value); },
+                placeholder: '输入指令（如：识别这张表格中的所有数据）...',
+                rows: 1,
+                style: {
+                  flex: 1,
+                  padding: '8px 10px',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '6px',
+                  fontSize: '12px',
+                  resize: 'none',
+                  outline: 'none',
+                  fontFamily: 'inherit',
+                  minHeight: '100%',
+                  height: '100%',
+                  background: '#fff',
+                  color: TEXT_DARK,
+                  lineHeight: '1.4'
+                },
+                onKeyDown: function(e) {
+                  // 🎯 Ctrl+Enter 或 Cmd+Enter 发送消息或浏览网页
+                  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                    e.preventDefault();
+                    if (currentMode === 'service' && selectedServiceCard) {
+                      browseServiceCard();
+                    } else {
+                      send();
+                    }
+                  } else if (e.key === 'ArrowUp') {
+                    // 📜 向上键：浏览更早的历史消息（文字 + 图片）
+                    e.preventDefault();
+
+                    if (messageHistory.length === 0) return;  // 没有历史
+
+                    var newIndex;
+                    if (historyIndex === -1) {
+                      // 第一次按 ↑：加载最近的一条消息
+                      newIndex = messageHistory.length - 1;
+                    } else if (historyIndex > 0) {
+                      // 继续向上浏览
+                      newIndex = historyIndex - 1;
+                    } else {
+                      return;  // 已经是最早的消息了
+                    }
+
+                    var historyItem = messageHistory[newIndex];
+
+                    setHistoryIndex(newIndex);
+                    setInputText(typeof historyItem.text === 'object' && historyItem.text !== null && historyItem.text.text !== undefined ? String(historyItem.text.text) : (historyItem.text || ''));
+                    setImages(historyItem.images || historyItem.imgs || []);
+
+                    setStatus({
+
+                      ok: true,
+                      msg: '📜 历史消息 (' + (newIndex + 1) + '/' + messageHistory.length + ')' +
+                           (historyItem.images && historyItem.images.length > 0
+                             ? ' + ' + historyItem.images.length + '张图片'
+                             : '')
+                    });
+                    setTimeout(function() { setStatus(null); }, 2000);
+                    
+                  } else if (e.key === 'ArrowDown') {
+                    // 📜 向下键：浏览更新的历史消息（或回到当前输入）
+                    e.preventDefault();
+
+                    if (historyIndex === -1) return;  // 不在浏览模式
+
+                    var newIndex;
+                    if (historyIndex < messageHistory.length - 1) {
+                      // 继续向下浏览
+                      newIndex = historyIndex + 1;
+                      setHistoryIndex(newIndex);
+
+                      var historyItem = messageHistory[newIndex];
+                      setInputText(typeof historyItem.text === 'object' && historyItem.text !== null && historyItem.text.text !== undefined ? String(historyItem.text.text) : (historyItem.text || ''));
+                      setImages(historyItem.images || historyItem.imgs || []);
+
+                      setStatus({
+                        ok: true,
+                        msg: '📜 历史消息 (' + (newIndex + 1) + '/' + messageHistory.length + ')' +
+                             (historyItem.images && historyItem.images.length > 0
+                               ? ' + ' + historyItem.images.length + '张图片'
+                               : '')
+                      });
+                    } else {
+                      // 回到当前输入（清空文字和图片）
+                      setHistoryIndex(-1);
+                      setInputText('');
+                      setImages([]);  // 清空图片
+                      setStatus({ ok: true, msg: '✏️ 已恢复当前输入' });
+                    }
+                    setTimeout(function() { setStatus(null); }, 2000);
+                  }
+                }
+              }),
+
+              // 模式状态 + 按钮区域（三行垂直堆叠）
+              createElement('div', {
+                style: {
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: currentMode === 'service' ? 'stretch' : 'center',
+                  gap: '4px'
+                }
+              },
+                // 第1行：已选卡片标签
+                currentMode === 'service' && selectedServiceCard && createElement('span', {
+                  style: {
+                    padding: '4px 10px',
+                    background: '#fef3c7',
+                    borderRadius: '5px',
+                    border: '1px solid #fde68a',
+                    fontSize: '11px',
+                    color: '#92400e',
+                    fontWeight: 500,
+                    alignSelf: 'flex-start'
+                  }
+                }, '✅ ', selectedServiceCard.name, selectedServiceCard.previewOnly ? '(预览)' : ''),
+
+                // ✨ 新功能：对话模式切换开关（Toggle Switch）- 仅在服务卡片模式显示
+                currentMode === 'service' && createElement('label', {
+                  style: {
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '6px 12px',
+                    background: injectMode ? '#f0fdf4' : '#f9fafb',
+                    borderRadius: '8px',
+                    border: '1px solid ' + (injectMode ? '#86efac' : '#e5e7eb'),
+                    fontSize: '11px',
+                    color: injectMode ? '#166534' : '#6b7280',
+                    cursor: 'pointer',
+                    alignSelf: 'flex-start',
+                    transition: 'all 0.3s ease',
+                    userSelect: 'none'
+                  },
+                  title: injectMode
+                    ? '💬 继续对话模式：消息将注入到当前聊天（保持上下文）\n切换后开启新聊天'
+                    : '🆕 新对话模式：每次都会开启新聊天\n切换后继续当前对话'
+                },
+                  createElement('div', {
+                    style: {
+                      position: 'relative',
+                      width: '44px',
+                      height: '24px',
+                      background: injectMode ? '#22c55e' : '#d1d5db',
+                      borderRadius: '12px',
+                      transition: 'background 0.3s ease',
+                      flexShrink: 0
+                    }
+                  },
+                    createElement('div', {
+                      style: {
+                        position: 'absolute',
+                        top: '2px',
+                        left: injectMode ? '22px' : '2px',
+                        width: '20px',
+                        height: '20px',
+                        background: 'white',
+                        borderRadius: '50%',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                        transition: 'left 0.3s ease'
+                      }
+                    })
+                  ),
+                  createElement('input', {
+                    type: 'checkbox',
+                    checked: injectMode,
+                    onChange: function(e) {
+                      var newMode = e.target.checked;
+                      setInjectMode(newMode);
+                      console.log('[AI-Chat] 🔄 对话模式切换:', newMode ? '✅ 继续对话模式（保持上下文）' : '🆕 新对话模式');
+                      setStatus({
+                        ok: true,
+                        msg: newMode
+                          ? '✅ 已切换到【继续对话模式】（保持上下文）'
+                          : '🆕 已切换到【新对话模式】'
+                      });
+                      setTimeout(function() { setStatus(null); }, 2500);
+                    },
+                    style: {
+                      display: 'none'
+                    }
+                  }),
+                  createElement('span', {
+                    style: {
+                      fontWeight: injectMode ? '600' : '400',
+                      letterSpacing: '0.3px'
+                    }
+                  }, injectMode ? '💬 继续对话' : '🆕 新对话')
+                ),
+
+                // 第2行：运行状态消息
+                serviceStatusMsg && createElement('span', {
+                  style: {
+                    padding: '4px 10px',
+                    borderRadius: '5px',
+                    fontSize: '12px',
+                    fontWeight: 500,
+                    background: serviceStatusType === 'success' ? '#ecfdf5' : (serviceStatusType === 'danger' ? '#fef2f2' : '#eff6ff'),
+                    border: '1px solid ' + (serviceStatusType === 'success' ? '#a7f3d0' : (serviceStatusType === 'danger' ? '#fecaca' : '#bfdbfe')),
+                    color: serviceStatusType === 'success' ? '#065f46' : (serviceStatusType === 'danger' ? '#991b1b' : '#1e40af'),
+                    textAlign: 'left'
+                  }
+                }, serviceStatusMsg),
+
+                // 第3行：操作按钮
+                createElement('button', {
+                onClick: function() {
+                  if (currentMode === 'service' && selectedServiceCard) {
+                    browseServiceCard();
+                  } else {
+                    send();
+                  }
+                },
+                disabled: isLoading || (currentMode === 'model' && !inputText.trim() && images.length === 0),
+                title: currentMode === 'service' && selectedServiceCard 
+                  ? ' 浏览网页 (Ctrl+Enter / ⌘+Enter)' 
+                  : '发送消息 (Ctrl+Enter / ⌘+Enter)',
+                style: (function() {
+                  var isServiceMode = currentMode === 'service';
+                  var isDisabled = isLoading || (isServiceMode ? !selectedServiceCard : (!inputText.trim() && images.length === 0));
+                  
+                  return {
+                    minWidth: isServiceMode ? '100px' : '40px',
+                    height: '40px',
+                    borderRadius: isServiceMode ? '20px' : '50%',
+                    background: isDisabled ? '#e5e7eb' : (isServiceMode ? '#6366f1' : '#07c160'),
+                    border: 'none',
+                    color: '#fff',
+                    cursor: isDisabled ? 'not-allowed' : 'pointer',
+                    fontSize: '13px',
+                    fontWeight: 'bold',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                    alignSelf: 'center',
+                    transition: 'all 0.2s ease',
+                    padding: isServiceMode ? '0 16px' : '0',
+                    boxShadow: isDisabled 
+                      ? 'none' 
+                      : (isServiceMode ? '0 2px 8px rgba(99, 102, 241, 0.3)' : '0 2px 8px rgba(7, 193, 96, 0.3)'),
+                    lineHeight: '1',
+                    gap: '4px'
+                  };
+                })(),
+                onMouseEnter: function(e) {
+                  var isServiceMode = currentMode === 'service';
+                  var isDisabled = isLoading || (isServiceMode ? !selectedServiceCard : (!inputText.trim() && images.length === 0));
+                  if (!isDisabled) {
+                    e.target.style.background = isServiceMode ? '#4f46e5' : '#06ad56';
+                    e.target.style.transform = 'scale(1.05)';
+                  }
+                },
+                onMouseLeave: function(e) {
+                  var isServiceMode = currentMode === 'service';
+                  var isDisabled = isLoading || (isServiceMode ? !selectedServiceCard : (!inputText.trim() && images.length === 0));
+                  if (!isDisabled) {
+                    e.target.style.background = isServiceMode ? '#6366f1' : '#07c160';
+                    e.target.style.transform = 'scale(1)';
+                  }
+                }
+              }, 
+                serviceLoading ? '' : (currentMode === 'service' && selectedServiceCard ? ' 浏览网页' : (isLoading ? '⏳' : '↑'))
+              )
+            )     // 关闭状态+按钮容器 div
+          )     // 关闭输入工具栏 div
+        )      // 关闭子区块2 div
+      )       // 关闭父阶区块 div
+    ));      // 关闭 FloatingWindowReact (createElement + 参数)
+  }         // 关闭 AIChatApp 函数
+
+  // 暴露到全局
+  window.AIChatApp = AIChatApp;
+
+  // =========================================================
+  // 初始化
+  // =========================================================
+
+  function init() {
+    var btn = document.getElementById('aiChatBtn');
+
+    if (!btn) {
+      console.warn('[AI-Chat] 未找到按钮，重试...');
+      setTimeout(init, 1000);
+      return;
+    }
+
+    btn.addEventListener('click', function() {
+      try {
+        if (!window.FloatingWindowReact) {
+          alert('❌ FloatingWindowReact 组件未加载！');
+          return;
+        }
+
+        var old = document.getElementById('ai-chat-window');
+        if (old) {
+          ReactDOM.unmountComponentAtNode(old);
+          if (old.parentNode) old.parentNode.removeChild(old);
+        }
+
+        var container = document.createElement('div');
+        container.id = 'ai-chat-window';
+        document.body.appendChild(container);
+
+        try {
+          //  添加全局错误捕获（显示弹窗，因为用户无法打开控制台）
+          window.__aiChatErrorHandler = function(msg, source, lineno, colno, error) {
+            alert('❌ AI助手运行错误！\n\n' +
+              '错误: ' + msg + '\n' +
+              '位置: ' + (source || '') + ':' + (lineno || '') + ':' + (colno || '') + '\n' +
+              '堆栈: ' + (error && error.stack ? error.stack.substring(0, 300) : '无'));
+            return true;
+          };
+          window.addEventListener('error', window.__aiChatErrorHandler);
+          window.addEventListener('unhandledrejection', function(e) {
+            alert('❌ AI助手异步错误！\n\n' + (e.reason ? (e.reason.message || e.reason) : '未知错误'));
+          });
+
+          var element = createElement(ErrorBoundary, null, createElement(AIChatApp));
+          ReactDOM.render(element, container);
+        } catch(renderErr) {
+          alert('❌ 渲染失败！\n\n错误: ' + renderErr.message + '\n\n堆栈: ' + (renderErr.stack || '').substring(0, 500));
+          container.innerHTML = '<div style="padding:30px;background:#fee2e2;border-radius:16px;color:#dc2626;text-align:center;max-width:500px;margin:40px auto;font-family:sans-serif;">' +
+            '<h3 style="margin:0 0 16px;">❌ 页面渲染失败</h3>' +
+            '<p style="font-size:14px;margin:0 0 12px;">错误: ' + renderErr.message + '</p>' +
+            '<p style="font-size:12px;margin-top:16px;">请刷新页面重试 (Cmd+R)</p>' +
+            '</div>';
+        }
+
+      } catch(err) {
+        alert('❌ 打开失败！\n\n错误: ' + err.message);
+      }
+    });
+
+    console.log('[AI-Chat] ✅ 已初始化');
+  }
+
+  // =========================================================
+  // 启动（带全面错误捕获）
+  // =========================================================
+  try {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', function() {
+        try { init(); } catch(e) { console.error('[AI-Chat] init 失败:', e); }
+      });
+    } else {
+      init();
+    }
+
+    console.log('[AI-Chat] ✅ 微信风格版 v4.1 已加载 (完整 AI 调用 + 自动重试机制 v2.0 + IndexedDB + 数据浏览器 + 进度动画)');
+    console.log('[AI-Chat] 🔄 自动重试功能已启用 - 最大10次, 间隔2秒, 支持429/5xx/1305等错误码');
+  } catch(globalErr) {
+    console.error('[AI-Chat]  全局初始化失败:', globalErr);
+    console.error('[AI-Chat] 请检查控制台输出获取详细错误信息');
+  }
+
+})();

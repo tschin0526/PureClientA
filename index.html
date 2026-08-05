@@ -1,0 +1,991 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#1e40af">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="交易记录">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <link rel="manifest" href="manifest.json?v=20260416">
+    <link rel="apple-touch-icon" href="icons/icon-192.png?v=20260416">
+    <title>纯前端交易记录系统</title>
+    <link rel="stylesheet" href="styles.css?v=20260430_1710">
+    <link rel="stylesheet" href="components/FloatingWindow/FloatingWindow.css?v=20260416">
+    <link rel="stylesheet" href="buySellAdvicePlugin.css?v=20260416">
+    <link rel="stylesheet" href="addTradePlugin.css?v=20260416">
+    <link rel="stylesheet" href="bubbleHideManagerPlugin.css?v=20260416">
+    <link rel="stylesheet" href="stockInfoPlugin.css?v=20260416">
+    <link rel="stylesheet" href="systemOpenAccountPlugin.css?v=20260416">
+    <!-- Markdown 渲染样式（用于 AI 聊天消息的美化显示） -->
+    <link rel="stylesheet" href="markdown-styles.css?v=20260610_v2.0">
+</head>
+<body>
+    <div id="versionIndicator" onclick="try{if(window.VersionHistoryPlugin){window.VersionHistoryPlugin.show();}else{alert('VersionHistoryPlugin未加载');}}catch(e){alert('错误:'+e.message);}" style="position: fixed; top: 5px; left: 10px; z-index: 999999; padding: 3px 12px; border-radius: 4px; font-size: 11px; font-weight: bold; color: #374151; background: #f9fafb; border: 1px solid #d1d5db; cursor: pointer;">📦 加载中...</div>
+    <div id="modeIndicator" style="position: fixed; top: 5px; right: 120px; z-index: 999999; padding: 3px 12px; border-radius: 4px; font-size: 11px; font-weight: bold; color: white; cursor: pointer;"></div>
+    <button id="clearCacheBtn" style="position: fixed; top: 5px; right: 10px; z-index: 999999; padding: 3px 12px; border-radius: 4px; font-size: 11px; font-weight: bold; color: white; background: #dc2626; border: none; box-shadow: 0 2px 6px rgba(0,0,0,0.3); cursor: pointer;">🔄 清除缓存</button>
+
+    <!-- 更新提示横幅 -->
+    <div id="updateBanner" class="update-banner" style="display: none;">
+        <div class="update-content">
+            <span class="update-icon">🎉</span>
+            <span class="update-text">应用已更新到新版本！</span>
+            <button id="updateBtn" class="update-btn">立即刷新</button>
+            <button id="dismissUpdateBtn" class="dismiss-btn">稍后</button>
+        </div>
+    </div>
+    <script>
+      (function() {
+        var versionIndicator = document.getElementById('versionIndicator');
+        var modeIndicator = document.getElementById('modeIndicator');
+        var protocol = window.location.protocol;
+        var hostname = window.location.hostname;
+        var port = window.location.port;
+        var fullUrl = window.location.href;
+
+        var modeText = '';
+        var bgColor = '';
+        var isHttps = protocol === 'https:';
+        var isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
+        var supportsPWA = (isHttps || isLocalhost) && 'serviceWorker' in navigator;
+
+        // 检查轻量级PWA支持
+        var isHttpNetwork = protocol === 'http:' && !isLocalhost;
+        var supportsLightPWA = isHttpNetwork && 'localStorage' in window && 'indexedDB' in window;
+
+        // 检测启动方式
+        var isStandalone = false;
+        // 检查 display-mode: standalone
+        if (window.matchMedia('(display-mode: standalone)').matches) {
+          isStandalone = true;
+        }
+        // 检查 iOS Safari 的 standalone 属性
+        else if (window.navigator.standalone) {
+          isStandalone = true;
+        }
+        // 检查 display-mode: minimal-ui (Android Chrome)
+        else if (window.matchMedia('(display-mode: minimal-ui)').matches) {
+          isStandalone = true;
+        }
+        // 检查 Android Chrome 的 PWA 模式（备选方法）
+        else if (window.navigator.userAgent.includes('Chrome') && !window.matchMedia('(display-mode: browser)').matches) {
+          isStandalone = true;
+        }
+        // 检查 Firefox 的 PWA 模式
+        else if (window.navigator.userAgent.includes('Firefox') && !window.matchMedia('(display-mode: browser)').matches) {
+          isStandalone = true;
+        }
+        // 检查 Firefox 的 PWA 模式（备选方法）
+        else if (window.navigator.userAgent.includes('Firefox') && window.location.href.includes('appmode=true')) {
+          isStandalone = true;
+        }
+        var launchMode = isStandalone ? '主屏幕' : '浏览器';
+
+        if (protocol === 'http:' || protocol === 'https:') {
+          if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0') {
+            // 本地开发环境
+            var pwaStatus = supportsPWA ? '🔒 PWA' : '🌐 HTTP';
+            modeText = pwaStatus + ' | ' + launchMode + '启动' + ' | 手持设备访问: ' + (isHttps ? 'https' : 'http') + '://' + (isHttps ? '动态IP:4430' : '动态IP:8000');
+            bgColor = supportsPWA ? '#059669' : '#f59e0b';
+            modeIndicator.title = '点击复制手持设备访问链接 (当前: ' + (supportsPWA ? 'PWA模式' : 'HTTP模式') + ' | ' + launchMode + '启动)';
+
+            modeIndicator.addEventListener('click', function() {
+              var accessUrl = (isHttps ? 'https://' : 'http://') + '动态IP检测中...';
+              navigator.clipboard.writeText(accessUrl)
+                .then(function() {
+                  modeIndicator.textContent = '✅ 已复制!';
+                  setTimeout(function() {
+                    modeIndicator.textContent = pwaStatus + ' | ' + launchMode + '启动' + ' | 手持设备访问: ' + (isHttps ? 'https' : 'http') + '://动态IP:' + (isHttps ? '4430' : '8000');
+                  }, 1500);
+                })
+                .catch(function() {
+                  alert('复制失败，请查看控制台获取当前IP地址');
+                });
+            });
+          } else {
+            // 网络访问环境
+            var pwaStatus = supportsPWA ? '🔒 PWA' : (supportsLightPWA ? '⚡ LightPWA' : '🌐 WEB');
+            modeText = pwaStatus + ' | ' + launchMode + '启动' + ' | 访问: ' + protocol + '//' + hostname + (port ? ':' + port : '');
+            bgColor = supportsPWA ? '#059669' : (supportsLightPWA ? '#3b82f6' : '#f59e0b');
+            modeIndicator.title = '点击复制访问链接 (当前: ' + (supportsPWA ? '完整PWA模式' : (supportsLightPWA ? '轻量级PWA模式' : '基础WEB模式')) + ' | ' + launchMode + '启动)';
+
+            modeIndicator.addEventListener('click', function() {
+              navigator.clipboard.writeText(protocol + '//' + hostname + (port ? ':' + port : ''))
+                .then(function() {
+                  modeIndicator.textContent = '✅ 已复制!';
+                  setTimeout(function() {
+                    modeIndicator.textContent = pwaStatus + ' | ' + launchMode + '启动' + ' | 访问: ' + protocol + '//' + hostname + (port ? ':' + port : '');
+                  }, 1500);
+                })
+                .catch(function() {
+                  alert('复制失败，请手动复制: ' + protocol + '//' + hostname + (port ? ':' + port : ''));
+                });
+            });
+          }
+          window._runMode = isHttps ? 'https' : 'http';
+        } else if (protocol === 'file:') {
+          modeText = '📁 FILE 模式 | ' + launchMode + '启动';
+          bgColor = '#dc2626';
+          window._runMode = 'file';
+        } else {
+          modeText = '❓ ' + protocol.toUpperCase() + ' 模式 | ' + launchMode + '启动';
+          bgColor = '#6b7280';
+          window._runMode = 'other';
+        }
+
+        modeIndicator.textContent = modeText;
+        modeIndicator.style.background = bgColor;
+        
+
+      })();
+      
+      // 清除缓存按钮功能
+      document.getElementById('clearCacheBtn').addEventListener('click', async function() {
+        if (confirm('确定要清除所有缓存并刷新页面吗？')) {
+          const results = [];
+          
+          try {
+            // 1. 检测并注销 Service Worker
+            if ('serviceWorker' in navigator) {
+              // 先记录初始状态
+              const initialRegistrations = await navigator.serviceWorker.getRegistrations();
+              results.push(`🔍 Service Worker 检测: 发现 ${initialRegistrations.length} 个注册`);
+              
+              if (initialRegistrations.length > 0) {
+                for (let registration of initialRegistrations) {
+                  const scope = registration.scope;
+                  const unregistered = await registration.unregister();
+                  console.log('Service Worker 已注销:', scope, unregistered);
+                  results.push(`   - ${scope}: ${unregistered ? '✅ 已注销' : '❌ 注销失败'}`);
+                }
+                results.push(`✅ Service Worker: 处理完成`);
+              } else {
+                results.push('ℹ️ Service Worker: 当前没有活跃的注册');
+                results.push('   (可能已被系统清理或之前已注销)');
+              }
+            } else {
+              results.push('ℹ️ Service Worker: 浏览器不支持');
+            }
+            
+            // 2. 清除 Cache Storage
+            if ('caches' in window) {
+              const cacheNames = await caches.keys();
+              if (cacheNames.length > 0) {
+                for (let cacheName of cacheNames) {
+                  await caches.delete(cacheName);
+                  console.log('缓存已删除:', cacheName);
+                }
+                results.push(`✅ Cache Storage: 已删除 ${cacheNames.length} 个缓存`);
+                cacheNames.forEach(name => results.push(`   - ${name}`));
+              } else {
+                results.push('ℹ️ Cache Storage: 没有缓存');
+              }
+            } else {
+              results.push('ℹ️ Cache Storage: 浏览器不支持');
+            }
+            
+            // 3. iOS 特殊提示
+            const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+            if (isIOS) {
+              results.push('📱 设备检测: iOS 设备');
+              results.push('   (iOS Service Worker 说明:');
+              results.push('   - iOS 可能会自动清理不活跃的 Service Worker');
+              results.push('   - PWA 添加到主屏幕后会更稳定');
+            }
+            
+            // 4. 保留数据提示
+            results.push('💾 交易数据: 已保留 (localStorage 未清除)');
+            
+            // 显示详细结果
+            const message = results.join('\n');
+            alert('缓存清除完成！\n\n' + message + '\n\n页面将刷新...');
+            
+            // 4. 刷新页面
+            setTimeout(() => {
+              window.location.reload(true);
+            }, 500);
+            
+          } catch (error) {
+            console.error('清除缓存时出错:', error);
+            results.push(`❌ 错误: ${error.message}`);
+            const message = results.join('\n');
+            alert('清除缓存过程中出现问题：\n\n' + message + '\n\n请手动强制刷新：Cmd + Option + R');
+          }
+        }
+      });
+    </script>
+
+    <div class="app">
+
+        <div class="panel">
+            <div class="toolbar">
+                <input type="date" id="filterDate" placeholder="筛选日期">
+                <input type="text" id="filterStock" list="filterStockList" placeholder="筛选股票">
+                <datalist id="filterStockList"></datalist>
+                <div class="toolbar-buttons">
+                    <button id="filterBtn">筛选</button>
+                    <button id="resetFilterBtn">重置</button>
+                    <button id="toggleViewBtn" class="active">表格模式</button>
+                    <button id="databaseManagerBtn">数据库管理</button>
+                    
+                    <!-- 下拉菜单 -->
+                    <div class="dropdown">
+                        <button id="manageDropdownBtn" class="dropdown-btn">管理菜单 ▼</button>
+                        <div class="dropdown-content">
+                            <button id="stockCodeManagerBtn">📊 股票代码管理</button>
+                            <button id="stockListExportBtn" title="查看当前股票清单（数据来源：浏览器持久化）">📋 股票清单</button>
+                            <button id="categoryManagerBtn" title="类别代码维护作业">📂 类别代码管理</button>
+                            <button id="categoryListExportBtn" title="查看当前类别清单（数据来源：浏览器持久化）">📋 类别清单</button>
+                            <button id="objectCodeManagerBtn" title="对象代号维护作业">🏷️ 对象代号管理</button>
+                            <button id="objectListExportBtn" title="查看当前对象清单（数据来源：浏览器持久化）">📋 对象清单</button>
+                            <button id="aiParserBtn" title="使用 AI 智能协作 让聪明的&quot;人&quot;与我们一同做工">🤖 AI 截图资料解析</button>
+                            <button id="aiChatBtn" title="💬 类微信聊天式 AI 协作工具（新版 v2.0）">💬 AI智能协作助手 v2.0</button>
+                            <button id="crawlerLabBtn" title="爬虫实验室 — 爬取页面超链接、表格、文本、图片、按钮图标">🐛 爬虫实验室</button>
+                </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="summary">
+                <!-- 折叠统计容器 -->
+                <div class="stats-container">
+                    <div class="stats-header">
+                        <span class="stats-title">交易统计</span>
+                        <button id="toggleStatsBtn" class="stats-toggle" data-expanded="false"></button>
+                    </div>
+                    <div class="stats-content" style="display: none;">
+                        <!-- 详细统计信息将通过JavaScript动态插入 -->
+                    </div>
+                </div>
+            </div>
+
+            <div class="fullheight">
+                <!-- 表格模式容器 -->
+                <div class="view-container" id="tableView">
+                    <div class="table-controls">
+                        <button id="tableModeDetail" class="table-mode-btn">详细模式</button>
+                        <button id="tableModeStock" class="table-mode-btn active">股票模式</button>
+                        <div id="stockModeToolbar" class="stock-mode-toolbar" style="display: flex;">
+                            <button id="toggleAllStocksBtn" class="stock-mode-toolbar-btn">折叠所有股票</button>
+                            <button id="autoPairAllMinBtn" class="stock-mode-toolbar-btn">auto配对(最小)</button>
+                            <select id="stockJumpSelect" class="stock-jump-select">
+                                <option value="">跳转到股票</option>
+                            </select>
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="hideHideableBubbles"> 屏蔽气泡
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="showOnlyFilterDateStocks"> 只显示当天股票
+                            </label>
+                            <button id="openCompactModeBtn" class="compact-mode-btn" style="display: none;">紧凑模式</button>
+                        </div>
+                    </div>
+                    <div class="table-wrap">
+                        <table>
+                            <thead id="tableHead">
+                                <tr>
+                                    <th>日期</th>
+                                    <th>市场</th>
+                                    <th>股票</th>
+                                    <th>买/卖</th>
+                                    <th>数量</th>
+                                    <th>单价</th>
+                                    <th>备注</th>
+                                    <th>金额</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- 交易记录将通过JavaScript动态插入 -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <!-- 气泡模式容器 -->
+                <div class="view-container" id="bubbleView" style="display: none;">
+                    <!-- 配对模式配对按钮 -->
+                    <div id="pairingControls" class="pairing-controls" style="display: none;">
+                        <div class="pairing-divider"></div>
+                        <button id="bubbleModeBtn" class="pairing-btn mode-toggle-btn">配对模式</button>
+                        <button id="toggleAllPairBtn" class="pairing-btn toggle-all">全部配对</button>
+                        <button id="toggleTodayPairBtn" class="pairing-btn toggle-today">当天配对</button>
+                        <button id="toggleAllPairBubbleBtn" class="pairing-btn toggle-all-bubble">全部屏蔽配对</button>
+                        <button id="toggleAllCollapseBtn" class="pairing-btn toggle-all-collapse">全部折叠</button>
+                        <button id="showPairingsBtn" class="pairing-btn">查看配对记录</button>
+                        <button id="clearPairings" class="pairing-btn clear-pairings">清空配对数据</button>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="showOtherQtyBtn"> 显示其他交易数量数据
+                        </label>
+                    </div>
+                    
+                    <div class="bubble-wrap">
+                        <!-- 台股部分 -->
+                        <div class="market-section">
+                            <h3>台股部分：</h3>
+                            <div id="taiwanStockBubbles"></div>
+                        </div>
+                        
+                        <!-- 陆股部分 -->
+                        <div class="market-section">
+                            <h3>陆股部分：</h3>
+                            <div id="chinaStockBubbles"></div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 文本模式容器 -->
+                <div class="view-container" id="textView" style="display: none;">
+                    <div class="text-controls">
+                        <button id="textModeNormal" class="text-mode-btn active">普通模式</button>
+                        <button id="textModePairing" class="text-mode-btn">配对关系模式</button>
+                    </div>
+                    <div class="text-wrap">
+                        <pre id="textOutput"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 输入区块移动到这里 -->
+        <div class="panel form-panel">
+            <!-- 模式切换按钮 -->
+            <div class="mode-switch">
+                <button id="modeSingleBtn" class="mode-btn active" data-mode="single">单笔输入</button>
+                <button id="modeBatchBtn" class="mode-btn" data-mode="batch">多笔输入</button>
+                <button id="modeMultiStockBtn" class="mode-btn" data-mode="multiStock">多笔多股输入</button>
+                <button id="modeMultiStockMultiDateBtn" class="mode-btn" data-mode="multiStockMultiDate">多笔多股多日期输入</button>
+            </div>
+            
+            <!-- 单笔输入模式 -->
+            <div id="singleInputMode" class="form-grid">
+                <div class="form-field">
+                    <label for="stockInput">股票名称</label>
+                    <div class="input-wrapper">
+                        <input type="text" id="stockInput" list="stockList" placeholder="选择或输入股票名称">
+                        <datalist id="stockList"></datalist>
+                    </div>
+                </div>
+
+                <div class="form-field">
+                    <label for="sideSelect">买卖方向</label>
+                    <div class="input-wrapper">
+                        <select id="sideSelect">
+                            <option value="buy">买入</option>
+                            <option value="sell">卖出</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="form-field">
+                    <label for="priceInput">交易单价</label>
+                    <div class="input-wrapper" style="display: flex; gap: 8px; align-items: center;">
+                        <input type="text" id="priceInput" placeholder="输入单价" style="flex: 1;">
+                        <div id="priceInputToggleBtn"></div>
+                    </div>
+                    <div id="priceInputKeypad"></div>
+                </div>
+                
+                <div class="form-field">
+                    <label for="remarkInput">交易备注</label>
+                    <div class="input-wrapper">
+                        <input type="text" id="remarkInput" maxlength="15" placeholder="输入备注（最多15个中文字）">
+                    </div>
+                </div>
+                
+                <div class="form-field action-field">
+                    <label class="invisible">操作</label>
+                    <div class="input-wrapper">
+                            <button id="addTxBtn">添加交易</button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 多笔输入模式 -->
+            <div id="batchInputMode" class="form-grid" style="display: none;">
+                <div class="form-field">
+                    <label for="batchStockInput">股票名称</label>
+                    <div class="input-wrapper">
+                        <input type="text" id="batchStockInput" list="batchStockList" placeholder="选择或输入股票名称">
+                        <datalist id="batchStockList"></datalist>
+                    </div>
+                </div>
+                
+                <div class="form-field full-width">
+                    <label for="batchInput">多笔交易输入（用空格分隔，-表示卖出）</label>
+                    <div class="input-wrapper">
+                        <textarea id="batchInput" placeholder="例如：21.1(#a) -21.55（#a） 20.95（备注说明) 20.6 +20.45 -20.75" rows="3"></textarea>
+                    </div>
+                </div>
+                
+                <div class="form-field action-field">
+                    <label class="invisible">操作</label>
+                    <div class="input-wrapper">
+                        <button id="addBatchTxBtn">添加交易</button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 多笔多股输入模式 -->
+            <div id="multiStockInputMode" class="form-grid" style="display: none;">
+                <div class="form-field full-width">
+                    <label for="multiStockInput">多笔多股交易输入（股票名称后输入交易单价，-表示卖出）</label>
+                    <div class="input-wrapper">
+                        <textarea id="multiStockInput" placeholder="台股：
+中信金 50.2 -49.4
+南亚 
+A50 22.1 -22.7 22.0
+
+陆股：
+兴业 
+软件ETF 0.838 -0.852
+恒生科技" rows="15"></textarea>
+                    </div>
+                </div>
+                
+                <div class="form-field action-field">
+                    <label class="invisible">操作</label>
+                    <div class="input-wrapper">
+                        <button id="addMultiStockTxBtn">添加交易</button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 多笔多股多日期输入模式 -->
+            <div id="multiStockMultiDateInputMode" class="form-grid" style="display: none;">
+                <div class="form-field full-width">
+                    <label for="multiStockMultiDateInput">多笔多股多日期交易输入（股票名称后输入交易单价(日期,数量)，-表示卖出）</label>
+           <div class="input-wrapper">
+               <textarea id="multiStockMultiDateInput" placeholder="台股：
+   元大金 32.2(2024-08-12,2000) 36.35(2025-03-04,1000) 36(2025-03-07,1000) 41.3(2026-01-23,1000) 42.2(2026-02-02,1000) 42.55(2026-02-02,1000) -31.65(2024-08-29,2000) -30(2024-09-10,1000) -30.2(2024-09-13,1000) -30(2024-09-13,1000)
+   南亚 79.7(2021-05-12,1000) 89.9(2022-04-14,1000) 88.1(2022-04-18,1000)
+
+   陆股：
+   神华 40.75(2026-01-30,1000) -41.22(2026-02-02,1000)
+   AI智能 100(2026-01-01,500) -105(2026-01-10,500)" rows="15"></textarea>
+           </div>
+                </div>
+                
+                <div class="form-field action-field">
+                    <label class="invisible">操作</label>
+                    <div class="input-wrapper">
+                        <button id="addMultiStockMultiDateTxBtn">添加交易</button>
+                    </div>
+                </div>
+            </div>
+            <!-- datalist移到外面，不影响flex布局 -->
+            <datalist id="stockList"></datalist>
+            <datalist id="batchStockList"></datalist>
+        </div>
+    </div>
+
+    <!-- 气泡详情模态框 -->
+    <div id="bubbleDetailModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modalTitle">交易详情</h3>
+            </div>
+            <div class="modal-body" id="modalBody">
+                <!-- 交易详情内容将通过JavaScript动态插入 -->
+            </div>
+        </div>
+    </div>
+
+    <!-- 配对记录查看模态框 -->
+    <div id="pairingsModal" class="modal" style="display:none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>配对记录</h3>
+                <button class="close-btn" id="closePairingsModalBtn">&times;</button>
+            </div>
+            <div class="modal-body" id="pairingsModalBody">
+                <!-- 配对记录表格由 JS 填充 -->
+            </div>
+        </div>
+    </div>
+
+
+
+    <!-- 拖拽配对悬浮区域 -->
+    <div id="dragPairZone" class="drag-pair-zone">
+        <div class="drag-pair-header">
+            <span class="drag-pair-title">配对区域</span>
+            <button class="drag-pair-toggle" id="toggleDragPairZone">−</button>
+        </div>
+        <div class="drag-pair-content" id="dragPairContent">
+            <div class="drag-pair-drop-zone" id="dragPairDropZone">
+                <div class="drop-zone-placeholder">
+                    <span class="drop-icon">📥</span>
+                    <span class="drop-text">拖拽买卖交易到这里</span>
+                </div>
+                <div class="drag-pair-items" id="dragPairItems">
+                </div>
+            </div>
+            <div class="drag-pair-actions">
+                <button id="confirmDragPairBtn" class="drag-pair-btn confirm" disabled>
+                    <span class="btn-icon">✓</span>
+                    配对
+                </button>
+                <button id="clearDragPairBtn" class="drag-pair-btn clear">
+                    <span class="btn-icon">✕</span>
+                    清空
+                </button>
+            </div>
+            <div class="drag-pair-info" id="dragPairInfo">
+            </div>
+        </div>
+    </div>
+
+    <!-- 手动配对窗口 -->
+    <div id="manualPairWindow" class="manual-pair-window" style="display:none;">
+        <div class="manual-pair-header">
+            <h3>手动配对窗口</h3>
+            <button class="close-btn" id="closeManualPairWindowBtn">&times;</button>
+        </div>
+        <div class="manual-pair-body">
+                <div class="manual-pair-info">
+                    <p id="manualPairInfoText">拖动未配对的买卖气泡到此窗口进行配对，或拖动已配对的气泡到此窗口解除配对</p>
+                </div>
+            <div class="manual-pair-drop-zone" id="manualPairDropZone">
+                <div class="drop-zone-placeholder">
+                    <span class="drop-icon">📥</span>
+                    <span class="drop-text">拖拽气泡到这里</span>
+                </div>
+                <div class="manual-pair-items" id="manualPairItems"></div>
+            </div>
+            <div class="manual-pair-actions">
+                <button id="confirmManualPairBtn" class="manual-pair-btn confirm" disabled>确认配对</button>
+                <button id="clearManualPairBtn" class="manual-pair-btn clear">清空</button>
+            </div>
+            <div class="manual-pair-result" id="manualPairResult"></div>
+        </div>
+    </div>
+
+    <script src="debugUtils.js?v=20260416"></script>
+    
+    <!-- 引入悬浮视窗组件 -->
+    <script src="components/FloatingWindow/FloatingWindow.js?v=20260416"></script>
+    
+    <!-- 版本历史查看器插件改为 React 版，后续在 React 脚本加载后引入 -->
+    
+    <!-- 引入配对详情插件 -->
+    <script src="pairDetailPlugin.js?v=20260416"></script>
+    
+    <!-- 引入数据模块，必须在app.js之前加载 -->
+    <script src="stockData.js?v=20260428"></script>
+    <script src="categoryData.js?v=20260429_1840"></script>
+    <script src="objectData.js?v=20260428"></script>
+    <script>
+      // 测试数据文件是否加载成功（使用 DebugAlert 累积式调试）
+      setTimeout(function() {
+        if (window.DebugAlert) {
+          DebugAlert.separator('数据加载测试');
+          
+          if (window.ALL_STOCKS) {
+            DebugAlert.success('stockData.js 加载成功: ' + window.ALL_STOCKS.length + ' 条');
+          } else {
+            DebugAlert.error('stockData.js 未加载');
+          }
+          
+          if (window.ALL_CATEGORIES) {
+            DebugAlert.success('categoryData.js 加载成功: ' + window.ALL_CATEGORIES.length + ' 条');
+          } else {
+            DebugAlert.error('categoryData.js 未加载');
+          }
+          
+          if (window.ALL_OBJECT_CODES) {
+            DebugAlert.success('objectData.js 加载成功: ' + window.ALL_OBJECT_CODES.length + ' 条');
+          } else {
+            DebugAlert.error('objectData.js 未加载');
+          }
+          
+          DebugAlert.show();
+        } else {
+          let msg = '📊 数据加载测试：\n\n';
+          
+          if (window.ALL_STOCKS) {
+            msg += '✅ stockData.js 加载成功: ' + window.ALL_STOCKS.length + ' 条\n';
+          } else {
+            msg += '❌ stockData.js 未加载\n';
+          }
+          
+          if (window.ALL_CATEGORIES) {
+            msg += '✅ categoryData.js 加载成功: ' + window.ALL_CATEGORIES.length + ' 条\n';
+          } else {
+            msg += '❌ categoryData.js 未加载\n';
+          }
+          
+          if (window.ALL_OBJECT_CODES) {
+            msg += '✅ objectData.js 加载成功: ' + window.ALL_OBJECT_CODES.length + ' 条\n';
+          } else {
+            msg += '❌ objectData.js 未加载\n';
+          }
+          
+          alert(msg);
+        }
+      }, 100);
+    </script>
+    <script src="modules/historyDataModule.js?v=20260416"></script>
+    <script src="modules/historyDataPlugin.js?v=20260416"></script>
+    <script src="modules/index.js?v=20260416"></script>
+    <link rel="stylesheet" href="compactModePlugin.css?v=20260416">
+    <script src="pairingsViewer.js?v=20260416"></script>
+    <script src="bubbleDetail.js?v=20260416"></script>
+    <script src="json-manager.js?v=20260416"></script>
+    <!-- 引入选择勾选导入/导出插件 -->
+    <script src="selectBubbleExportImport.js?v=20260422"></script>
+    <!-- 引入参数导入导出插件 -->
+    <script src="settingsExportImport.js?v=20260422"></script>
+    <script src="clearMainDbPlugin.js?v=20260416"></script>
+    <script src="set-main-db-plugin.js?v=20260416"></script>
+    <script src="stockDetailPlugin.js?v=20260416"></script>
+    <!-- 引入明细弹窗插件 -->
+    <script src="chartDetailModalPlugin.js?v=20260416"></script>
+    <!-- 引入网格交易建议插件 -->
+    <script src="gridTradingPlugin.js?v=20260416"></script>
+    <!-- 引入买卖建议插件 -->
+    <script src="buySellAdvicePlugin.js?v=20260416"></script>
+    <!-- 引入交易新增插件 -->
+    <script src="addTradePlugin.js?v=20260416"></script>
+    <!-- 引入批次修改气泡屏蔽插件 -->
+    <script src="batchHideBubblePlugin.js?v=20260416"></script>
+    <!-- 引入气泡屏蔽管理插件 -->
+    <script src="bubbleHideManagerPlugin.js?v=20260416"></script>
+    <!-- 引入股票信息插件 -->
+    <script src="stockInfoPlugin.js?v=20260416"></script>
+    <!-- 引入数字键盘组件 -->
+    <script src="numericKeypad.js?v=20260416"></script>
+    <!-- 引入紧凑数据导出插件 -->
+    <script src="compactDataExportPlugin.js?v=20260416"></script>
+    <!-- 引入系统开帐插件 -->
+    <script src="systemOpenAccountPlugin.js?v=20260416"></script>
+    <!-- 引入跨源数据迁移工具 -->
+    <script src="crossOriginDataMigration.js?v=20260416"></script>
+    <!-- 引入基础管理器插件（基类） -->
+    <script src="baseManagerPlugin.js?v=20260430_1600"></script>
+    <!-- OCR 引擎（独立共用工具） -->
+    <script src="ocrEngine.js?v=20260502"></script>
+    <!-- 文本数据解析器（独立共用工具） -->
+    <script src="textDataParser.js?v=20260502"></script>
+    <!-- 表格网格提取器（独立共用工具） -->
+    <script src="tableGridExtractor.js?v=20260512_v68"></script>
+    <!-- 截图对账插件（原生JS版） -->
+    <script src="screenshotVerifyPlugin.js?v=20260510"></script>
+    
+    <!-- React CDN（供 React 版插件使用） -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Markdown 渲染库 - 使用 unpkg（与 React 同源，更可靠） -->
+    <script src="https://unpkg.com/marked@12.0.0/marked.min.js"></script>
+    <!-- DOMPurify 安全过滤库 -->
+    <script src="https://unpkg.com/dompurify@3.0.8/dist/purify.min.js"></script>
+    
+    <!-- 备用：如果上面的 CDN 加载失败，会自动尝试以下源 -->
+    <script>
+      // 动态检测并加载缺失的库（兼容 Electron 环境）
+      (function() {
+        console.log('[Markdown-Loader] 🔍 检查库加载状态...');
+        
+        var markedLoaded = typeof window.marked !== 'undefined';
+        var dompurifyLoaded = typeof window.DOMPurify !== 'undefined';
+        
+        console.log('[Markdown-Loader] - marked:', markedLoaded ? '✅' : '❌');
+        console.log('[Markdown-Loader] - DOMPurify:', dompurifyLoaded ? '✅' : '❌');
+        
+        if (!markedLoaded || !dompurifyLoaded) {
+          console.warn('[Markdown-Loader] ⚠️ 部分库未加载，尝试备用 CDN...');
+          
+          // 备用 CDN 列表
+          var fallbackCDNs = [
+            { name: 'jsdelivr', marked: 'https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js', dompurify: 'https://cdn.jsdelivr.net/npm/dompurify@3.0.8/dist/purify.min.js' },
+            { name: 'bootcdn', marked: 'https://cdn.bootcdn.net/ajax/libs/marked/12.0.0/marked.min.js', dompurify: 'https://cdn.bootcdn.net/ajax/libs/dompurify/3.0.8/purify.min.js' }
+          ];
+          
+          var loadScript = function(src, callback) {
+            var script = document.createElement('script');
+            script.src = src;
+            script.onload = function() {
+              console.log('[Markdown-Loader] ✅ 加载成功:', src);
+              callback(true);
+            };
+            script.onerror = function() {
+              console.warn('[Markdown-Loader] ❌ 加载失败:', src);
+              callback(false);
+            };
+            document.head.appendChild(script);
+          };
+          
+          // 尝试每个备用 CDN
+          var tryLoadFromCDN = function(cdnIndex) {
+            if (cdnIndex >= fallbackCDNs.length) {
+              console.error('[Markdown-Loader] ❌ 所有 CDN 都失败了！将使用内置降级方案');
+              return;
+            }
+            
+            var cdn = fallbackCDNs[cdnIndex];
+            console.log('[Markdown-Loader] 🔄 尝试备用 CDN #' + (cdnIndex + 1) + ':', cdn.name);
+            
+            var promises = [];
+            
+            if (!markedLoaded) {
+              promises.push(new Promise(function(resolve) {
+                loadScript(cdn.marked, function(success) {
+                  if (success) markedLoaded = true;
+                  resolve();
+                });
+              }));
+            }
+            
+            if (!dompurifyLoaded) {
+              promises.push(new Promise(function(resolve) {
+                loadScript(cdn.dompurify, function(success) {
+                  if (success) dompurifyLoaded = true;
+                  resolve();
+                });
+              }));
+            }
+            
+            Promise.all(promises).then(function() {
+              if (!markedLoaded || !dompurifyLoaded) {
+                tryLoadFromCDN(cdnIndex + 1);
+              } else {
+                console.log('[Markdown-Loader] 🎉 所有库加载完成！');
+              }
+            });
+          };
+          
+          tryLoadFromCDN(0);
+        } else {
+          console.log('[Markdown-Loader] ✅ 所有库已成功加载！');
+        }
+      })();
+    </script>
+    
+    <!-- React 版浮动视窗组件 -->
+    <script src="components/FloatingWindow/FloatingWindowReact.js?v=20260610_v3.0"></script>
+    <!-- 版本历史查看器插件 React 版 -->
+    <script src="versionHistoryPluginReact.js"></script>
+    <!-- 截图对账插件 - Pure React 版 -->
+    <script src="screenshotVerifyPluginReact.js?v=20260510_v52"></script>
+    <!-- AI 截图解析插件 - Pure React 版（独立 AI 调用模块）- 完整版 v8.8 -->
+        <script src="aiScreenshotParserPlugin.js?v=20260512_v8.9"></script>
+    <!-- JSON 表格视图插件（可复用） -->
+        <script src="JsonTableViewerPlugin.js?v=20260518_v1.0"></script>
+    <!-- AI 聊天式协作工具 - 类微信界面 v1.0 -->
+        <script src="aiChatParserPlugin.js?v=20260618_v9.14-auto-continue-v57"></script>
+    <!-- 引入爬虫实验室插件 -->
+    <script src="crawlerLabPlugin.js?v=20260523_v1"></script>
+    <!-- AI 聊天数据库管理器 (IndexedDB) - 必须在数据浏览器之前加载 -->
+        <script src="AIChatDB.js?v=20260609_v2.0"></script>
+    <!-- 記錄詳情查看器 (獨立可復用插件) - 必须在数据浏览器之前加载 -->
+        <script src="RecordDetailViewer.js?v=20260520_v1.0"></script>
+    <!-- AI 聊天数据浏览器 (IndexedDB) -->
+        <script src="AIChatDataBrowser.js?v=20260610_v3.0"></script>
+    <!-- JSON 数据浏览器 -->
+        <script src="JSONDataBrowser.js?v=20260516_v1.4"></script>
+    <!-- AI API Key 管理器 -->
+    <script src="aiApiKeyManager.js?v=20260511"></script>
+    <!-- AI Prompt 管理器 -->
+    <script src="aiPromptManager.js?v=20260511"></script>
+    <!-- AI 设置窗口调试脚本 -->
+    <script src="debug-ai-settings.js?v=20260510"></script>
+    <!-- 引入股票代码管理插件样式 -->
+    <link rel="stylesheet" href="stockCodeManagerPlugin.css?v=20260425">
+    <!-- 引入股票代码管理插件 -->
+    <script src="stockCodeManagerPlugin.js?v=20260430_1600"></script>
+    <!-- 引入股票清单展示插件（拆分自 stockCodeManagerPlugin） -->
+    <script src="stockListDisplayPlugin.js?v=20260427"></script>
+    <!-- 引入类别代码管理插件 -->
+    <script src="categoryManagerPlugin.js?v=20260430_1600"></script>
+    <!-- 引入类别清单展示插件（拆分自 categoryManagerPlugin） -->
+    <script src="categoryListDisplayPlugin.js?v=20260430_1600"></script>
+    <script src="objectCodeManagerPlugin.js?v=20260430_1600"></script>
+    <!-- 引入对象清单展示插件（拆分自 objectCodeManagerPlugin） -->
+    <script src="objectListDisplayPlugin.js?v=20260430_1600"></script>
+    <!-- 引入 SQLite 备份插件（需要 sql.js） -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.9.0/sql-wasm.js" 
+            onerror="console.error('sql.js CDN 加载失败，SQLite 备份功能将不可用')"></script>
+    <script src="sqliteBackupPlugin.js?v=20260425-localtime"></script>
+    <!-- 引入 PDF 导出库 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script>
+      // PWA 更新提示逻辑 - 只在HTTPS环境下启用
+      let newWorker = null;
+
+      // 检查是否支持PWA（需要HTTPS或localhost HTTP）
+      const isHttps = window.location.protocol === 'https:';
+      const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      const supportsPWA = (isHttps || isLocalhost) && 'serviceWorker' in navigator;
+
+      // 为HTTP网络IP模式提供轻量级离线功能
+      const isHttpNetwork = window.location.protocol === 'http:' && !isLocalhost;
+      const supportsLightPWA = isHttpNetwork && 'localStorage' in window && 'indexedDB' in window;
+
+      if (supportsPWA) {
+        // 完整PWA模式
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('./sw.js')
+            .then(reg => {
+              console.log('[PWA] Service Worker 注册成功:', reg.scope);
+
+              // 检查是否有等待中的更新
+              reg.addEventListener('updatefound', () => {
+                newWorker = reg.installing;
+                console.log('[PWA] 发现新版本，正在安装...');
+
+                newWorker.addEventListener('statechange', () => {
+                  if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                    showUpdateBanner();
+                  }
+                });
+              });
+
+              // 监听来自 Service Worker 的消息
+              navigator.serviceWorker.addEventListener('message', (event) => {
+                if (event.data && event.data.type === 'UPDATE_AVAILABLE') {
+                  console.log('[PWA] 收到更新通知:', event.data.version);
+                  showUpdateBanner();
+                }
+              });
+            })
+            .catch(err => console.warn('[PWA] Service Worker 注册失败:', err));
+        });
+      } else if (supportsLightPWA) {
+        // 轻量级PWA模式（HTTP网络IP）
+        console.log('[LightPWA] 启用轻量级离线功能');
+        window.addEventListener('load', () => {
+          initLightPWA();
+        });
+      } else {
+        console.log('[PWA] PWA功能未启用:', !supportsPWA && !supportsLightPWA ? '不支持相关API' : '条件不满足');
+      }
+
+      function showUpdateBanner() {
+        const banner = document.getElementById('updateBanner');
+        banner.style.display = 'block';
+
+        // 添加动画效果
+        banner.style.animation = 'slideDown 0.5s ease-out';
+
+        // 绑定按钮事件
+        document.getElementById('updateBtn').onclick = () => {
+          if (newWorker) {
+            newWorker.postMessage({ type: 'SKIP_WAITING' });
+          }
+          window.location.reload();
+        };
+
+        document.getElementById('dismissUpdateBtn').onclick = () => {
+          banner.style.display = 'none';
+        };
+      }
+
+      // 轻量级PWA功能（为HTTP网络IP模式提供基本离线支持）
+      function initLightPWA() {
+        console.log('[LightPWA] 初始化轻量级离线功能...');
+
+        // 缓存关键资源到localStorage
+        cacheCriticalResources();
+
+        // 监听网络状态变化
+        setupNetworkMonitoring();
+
+        // 提供基本的离线页面功能
+        setupOfflineFallback();
+
+        console.log('[LightPWA] 轻量级PWA初始化完成');
+      }
+
+      function cacheCriticalResources() {
+        // 缓存CSS和关键JS文件的内容
+        const criticalResources = [
+          'styles.css',
+          'app.js',
+          'stockData.js'
+        ];
+
+        criticalResources.forEach(resource => {
+          fetch(resource)
+            .then(response => response.text())
+            .then(content => {
+              localStorage.setItem(`lightpwa_cache_${resource}`, content);
+              localStorage.setItem(`lightpwa_timestamp_${resource}`, Date.now());
+            })
+            .catch(err => console.log(`[LightPWA] 缓存失败 ${resource}:`, err));
+        });
+      }
+
+      function setupNetworkMonitoring() {
+        // 监听在线/离线状态变化
+        window.addEventListener('online', () => {
+          console.log('[LightPWA] 网络已恢复');
+          showNetworkStatus('网络已恢复', 'success');
+        });
+
+        window.addEventListener('offline', () => {
+          console.log('[LightPWA] 网络已断开');
+          showNetworkStatus('当前处于离线模式', 'warning');
+        });
+      }
+
+      function setupOfflineFallback() {
+        // 当网络请求失败时，尝试从缓存加载
+        const originalFetch = window.fetch;
+        window.fetch = function(...args) {
+          return originalFetch.apply(this, args)
+            .catch(error => {
+              // 网络请求失败，尝试从缓存加载
+              const url = args[0];
+              if (typeof url === 'string' && url.includes('.css')) {
+                const cached = localStorage.getItem(`lightpwa_cache_${url}`);
+                if (cached) {
+                  console.log(`[LightPWA] 从缓存加载 ${url}`);
+                  return Promise.resolve(new Response(cached, {
+                    status: 200,
+                    headers: { 'Content-Type': 'text/css' }
+                  }));
+                }
+              }
+              throw error;
+            });
+        };
+      }
+
+      function showNetworkStatus(message, type) {
+        // 创建临时的状态提示
+        const statusDiv = document.createElement('div');
+        statusDiv.style.cssText = `
+          position: fixed;
+          top: 60px;
+          right: 10px;
+          padding: 8px 16px;
+          border-radius: 4px;
+          color: white;
+          font-size: 12px;
+          font-weight: bold;
+          z-index: 10000;
+          animation: fadeIn 0.3s ease-out;
+        `;
+        statusDiv.style.backgroundColor = type === 'success' ? '#10b981' : '#f59e0b';
+        statusDiv.textContent = message;
+
+        document.body.appendChild(statusDiv);
+
+        setTimeout(() => {
+          statusDiv.style.animation = 'fadeOut 0.3s ease-out';
+          setTimeout(() => {
+            if (statusDiv.parentNode) {
+              statusDiv.parentNode.removeChild(statusDiv);
+            }
+          }, 300);
+        }, 3000);
+      }
+    </script>
+    <script src="app.js?v=20260416"></script>
+</body>
+</html>

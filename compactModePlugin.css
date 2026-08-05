@@ -1,0 +1,2369 @@
+/* 紧凑模式插件样式 */
+
+/* 主容器样式 */
+.compact-mode-container {
+  padding: 12px;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+  font-size: 14px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 头部样式 */
+.compact-mode-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 10px;
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-radius: 6px;
+  margin-bottom: 8px;
+  min-height: 0;
+}
+
+.compact-mode-title {
+  font-size: 16px;
+  font-weight: bold;
+  color: #0369a1;
+}
+
+.compact-mode-date {
+  font-size: 14px;
+  color: #0c4a6e;
+  white-space: nowrap;
+}
+
+/* 气泡缩放控制 */
+.bubble-scale-control {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 4px;
+  background: #f3f4f6;
+  border-radius: 3px;
+  border: 1px solid #e5e7eb;
+}
+
+.scale-btn {
+  padding: 1px 4px;
+  border: 1px solid #3b82f6;
+  border-radius: 3px;
+  background: white;
+  color: #3b82f6;
+  font-size: 10px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.2s;
+  min-width: 20px;
+}
+
+.scale-btn:hover {
+  background: #3b82f6;
+  color: white;
+}
+
+.scale-btn:active {
+  transform: scale(0.95);
+}
+
+.scale-value {
+  font-size: 10px;
+  font-weight: 600;
+  color: #374151;
+  min-width: 35px;
+  text-align: center;
+}
+
+/* 历史天数控制 */
+.history-days-control {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 4px;
+  background: #f3f4f6;
+  border-radius: 3px;
+  border: 1px solid #e5e7eb;
+}
+
+.history-days-value {
+  font-size: 10px;
+  font-weight: 600;
+  color: #374151;
+  min-width: 35px;
+  text-align: center;
+}
+
+.view-toggle-btn {
+  padding: 1px 6px;
+  border: 1px solid #3b82f6;
+  border-radius: 3px;
+  background: white;
+  color: #3b82f6;
+  font-size: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.view-toggle-btn:hover {
+  background: #3b82f6;
+  color: white;
+}
+
+/* 内容区域样式 */
+.compact-mode-content {
+  flex: 1;
+  overflow: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+}
+
+/* 扩展模式下的卡片 */
+.compact-stock-card.expanded-mode {
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 600px !important;
+  max-height: 100% !important;
+  border-radius: 11px !important;
+  padding: 44px !important;
+  box-sizing: border-box !important;
+  overflow-y: auto !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+.compact-stock-card.expanded-mode .compact-stock-content {
+  flex: 1 !important;
+  overflow-y: auto !important;
+  min-height: 0 !important;
+}
+
+.compact-stock-card.expanded-mode .main-view-area {
+  overflow-y: auto !important;
+  flex: 1 !important;
+  min-height: 0 !important;
+}
+
+/* 扩展模式下的卡片内容等比例放大61.96% (77.45%×0.8) */
+.compact-stock-card.expanded-mode .compact-stock-header {
+  font-size: 51px !important;
+}
+
+.compact-stock-card.expanded-mode .compact-stock-code {
+  font-size: 39px !important;
+}
+
+.compact-stock-card.expanded-mode .compact-stock-name {
+  font-size: 39px !important;
+}
+
+.compact-stock-card.expanded-mode .compact-stock-net {
+  font-size: 28px !important;
+}
+
+.compact-stock-card.expanded-mode .compact-stock-actions button {
+  min-width: 68px !important;
+  min-height: 68px !important;
+  max-width: 68px !important;
+  max-height: 68px !important;
+  font-size: 39px !important;
+}
+
+.compact-stock-card.expanded-mode .compact-stock-bubbles {
+  gap: 18px !important;
+}
+
+.compact-stock-card.expanded-mode .compact-bubble {
+  font-size: 28px !important;
+  padding: 11px 23px !important;
+}
+
+.compact-stock-card.expanded-mode .compact-bubble .bubble-stock-name {
+  font-size: 28px !important;
+}
+
+.compact-stock-card.expanded-mode .compact-bubble .bubble-price {
+  font-size: 34px !important;
+}
+
+.compact-stock-card.expanded-mode .compact-bubble .bubble-quantity {
+  font-size: 25px !important;
+}
+
+.compact-stock-card.expanded-mode .compact-bubble .bubble-remark {
+  font-size: 23px !important;
+}
+
+.compact-stock-card.expanded-mode .quick-add-section {
+  font-size: 28px !important;
+}
+
+.compact-stock-card.expanded-mode .quick-add-price {
+  font-size: 28px !important;
+  padding: 11px 18px !important;
+}
+
+.compact-stock-card.expanded-mode .quick-add-confirm {
+  font-size: 28px !important;
+  padding: 11px 23px !important;
+}
+
+.compact-stock-card.expanded-mode .compact-stock-footer {
+  font-size: 25px !important;
+}
+
+/* 扩展模式下的历史日期等比例再缩小20% */
+.compact-stock-card.expanded-mode .compact-history-date {
+  font-size: 22px !important;
+  padding: 5px 9px !important;
+  border-width: 2px !important;
+}
+
+/* 扩展模式下的气泡序号等比例缩小20% */
+.compact-stock-card.expanded-mode .bubble-order {
+  font-size: 25px !important;
+  bottom: -6px !important;
+}
+
+/* 扩展模式下的序号1气泡等比例缩小20% */
+.compact-stock-card.expanded-mode .bubble-order-max {
+  width: 34px !important;
+  height: 34px !important;
+  font-size: 23px !important;
+  border-width: 3px !important;
+}
+
+/* 扩展模式下的配对气泡等比例缩小20% */
+.compact-stock-card.expanded-mode .compact-pair {
+  gap: 8px !important;
+  padding: 8px !important;
+  border-radius: 46px !important;
+  border-width: 3px !important;
+}
+
+.compact-stock-card.expanded-mode .compact-pair .compact-bubble {
+  padding: 6px 28px !important;
+  font-size: 38px !important;
+  border-radius: 39px !important;
+}
+
+.compact-stock-card.expanded-mode .compact-pair .compact-bubble.today-trade {
+  padding: 6px 28px !important;
+  font-size: 38px !important;
+  border-radius: 39px !important;
+  border-width: 3px !important;
+}
+
+/* 扩展模式下的历史气泡等比例缩小20% */
+.compact-stock-card.expanded-mode .compact-bubble.history {
+  padding: 6px 25px !important;
+  font-size: 34px !important;
+  border-radius: 31px !important;
+}
+
+.compact-stock-card.expanded-mode .compact-bubble.history .bubble-order.bubble-order-max {
+  width: 34px !important;
+  height: 34px !important;
+  border-width: 3px !important;
+  font-size: 23px !important;
+}
+
+.compact-stock-card.expanded-mode .compact-bubble.history:has(.bubble-order.bubble-order-max) {
+  border-width: 3px !important;
+}
+
+.compact-stock-card.expanded-mode .compact-pair.history {
+  gap: 8px !important;
+  padding: 6px !important;
+  border-radius: 39px !important;
+}
+
+.compact-stock-card.expanded-mode .compact-pair.history .compact-bubble.history {
+  padding: 6px 25px !important;
+  font-size: 34px !important;
+  border-radius: 31px !important;
+}
+
+/* 扩展模式下的未配对买入标签等比例缩小20% */
+.compact-stock-card.expanded-mode .compact-unpaired-buy-label {
+  font-size: 28px !important;
+  padding: 6px 11px !important;
+  border-width: 3px !important;
+}
+
+/* 扩展模式下的未配对卖出标签等比例缩小20% */
+.compact-stock-card.expanded-mode .compact-unpaired-sell-label {
+  font-size: 28px !important;
+  padding: 6px 11px !important;
+  border-width: 3px !important;
+}
+
+/* 扩展模式下的市场网格 - 单列 */
+.compact-stock-grid.expanded-mode-grid {
+  grid-template-columns: 1fr !important;
+  padding: 8px !important;
+  gap: 0 !important;
+}
+
+.compact-market-section {
+  margin-bottom: 6px;
+  position: relative;
+}
+
+.compact-market-title {
+  background: #1e3a8a;
+  padding: 4px 10px;
+  font-weight: bold;
+  font-size: 14px;
+  color: #ffffff;
+  border-bottom: 1px solid #1e40af;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  position: sticky;
+  top: 0;
+  transition: all 0.1s ease;
+}
+
+.compact-market-toggle {
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 18px !important;
+  height: 18px !important;
+  border: none !important;
+  background: transparent !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  cursor: pointer !important;
+  z-index: 10 !important;
+  overflow: hidden !important;
+}
+
+/* 市场折页效果 - 折叠状态 */
+.compact-market-toggle::before {
+  content: '' !important;
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 0 !important;
+  height: 0 !important;
+  border-top: 18px solid #fbbf24 !important;
+  border-right: 18px solid transparent !important;
+  transition: all 0.2s ease !important;
+}
+
+/* 市场折页效果 - 展开状态 */
+.compact-market-toggle[data-expanded="true"]::before {
+  border-top-color: #60a5fa !important;
+}
+
+.compact-market-toggle:hover::before {
+  opacity: 0.8 !important;
+}
+
+/* 股票网格样式 */
+.compact-stock-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 2px;
+  padding: 8px;
+}
+
+.compact-stock-grid.vertical {
+  grid-template-columns: 1fr;
+  gap: 1px;
+  padding: 4px;
+}
+
+.compact-stock-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 20px;
+  padding: 8px;
+  background: white;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.compact-stock-card.vertical {
+  padding: 6px;
+  border-radius: 16px;
+}
+
+.compact-stock-card:hover {
+  background: #f9fafb;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* 股票头部样式 */
+.compact-stock-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 2px;
+  border-bottom: 1px solid #f3f4f6;
+  margin-bottom: 4px;
+  overflow: visible !important;
+}
+
+/* 股票信息容器（checkbox + 名称） */
+.compact-stock-info {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-left: 22px;
+  overflow: visible !important;
+}
+
+/* 股票操作容器（按钮 + 结存） */
+.compact-stock-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.compact-stock-header.vertical {
+  border-bottom: none;
+  padding-bottom: 0;
+  margin-bottom: 0;
+}
+
+.compact-stock-name {
+  font-weight: bold;
+  font-size: 12px;
+  color: #1f2937;
+}
+
+.compact-stock-name.vertical {
+  font-size: 11px;
+}
+
+.first-char {
+  font-size: 2.0em;
+  font-weight: bold;
+}
+
+/* 按钮样式 */
+.add-trade-btn {
+  width: 24px;
+  height: 24px;
+  border: none !important;
+  border-radius: 50% !important;
+  background: linear-gradient(145deg, #5b9eff, #2563eb) !important;
+  color: white !important;
+  font-size: 18px !important;
+  font-weight: bold !important;
+  cursor: pointer !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 0 !important;
+  flex-shrink: 0 !important;
+  transition: all 0.2s ease !important;
+  min-width: 24px !important;
+  min-height: 24px !important;
+  max-width: 24px !important;
+  max-height: 24px !important;
+  box-shadow: 3px 3px 6px #bebebe, -3px -3px 6px #ffffff !important;
+}
+
+.add-trade-btn:hover {
+  background: linear-gradient(145deg, #2563eb, #1d4ed8) !important;
+  transform: scale(1.05) !important;
+  box-shadow: 2px 2px 4px #bebebe, -2px -2px 4px #ffffff !important;
+}
+
+.add-trade-btn:active {
+  transform: scale(0.95) !important;
+  box-shadow: inset 2px 2px 4px #1d4ed8, inset -2px -2px 4px #3b82f6 !important;
+}
+
+.history-btn {
+  width: 12px !important;
+  height: 12px !important;
+  border: none !important;
+  border-radius: 50% !important;
+  background: linear-gradient(145deg, #34d399, #059669) !important;
+  color: white !important;
+  font-size: 9px !important;
+  font-weight: bold !important;
+  cursor: pointer !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 0 !important;
+  flex-shrink: 0 !important;
+  transition: all 0.2s ease !important;
+  min-width: 12px !important;
+  min-height: 12px !important;
+  max-width: 12px !important;
+  max-height: 12px !important;
+  box-shadow: 2px 2px 4px #bebebe, -2px -2px 4px #ffffff !important;
+}
+
+.history-btn:hover {
+  background: linear-gradient(145deg, #059669, #047857) !important;
+  transform: scale(1.05) !important;
+  box-shadow: 1px 1px 2px #bebebe, -1px -1px 2px #ffffff !important;
+}
+
+.history-btn:active {
+  transform: scale(0.95) !important;
+  box-shadow: inset 1px 1px 2px #047857, inset -1px -1px 2px #10b981 !important;
+}
+
+.daily-pair-btn {
+  width: 24px !important;
+  height: 24px !important;
+  border: none !important;
+  border-radius: 50% !important;
+  background: linear-gradient(145deg, #5b9eff, #2563eb) !important;
+  color: white !important;
+  font-size: 18px !important;
+  font-weight: bold !important;
+  cursor: pointer !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 0 !important;
+  flex-shrink: 0 !important;
+  transition: all 0.2s ease !important;
+  min-width: 24px !important;
+  min-height: 24px !important;
+  max-width: 24px !important;
+  max-height: 24px !important;
+  box-shadow: 3px 3px 6px #bebebe, -3px -3px 6px #ffffff !important;
+}
+
+.daily-pair-btn:hover {
+  background: linear-gradient(145deg, #2563eb, #1d4ed8) !important;
+  transform: scale(1.05) !important;
+  box-shadow: 2px 2px 4px #bebebe, -2px -2px 4px #ffffff !important;
+}
+
+.daily-pair-btn:active {
+  transform: scale(0.95) !important;
+  box-shadow: inset 2px 2px 4px #1d4ed8, inset -2px -2px 4px #3b82f6 !important;
+}
+
+.compact-stock-actions .manual-pair-btn {
+  width: 24px !important;
+  height: 24px !important;
+  border: none !important;
+  border-radius: 50% !important;
+  background: linear-gradient(145deg, #5b9eff, #2563eb) !important;
+  color: white !important;
+  font-size: 18px !important;
+  font-weight: bold !important;
+  cursor: pointer !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 0 !important;
+  flex-shrink: 0 !important;
+  transition: all 0.2s ease !important;
+  min-width: 24px !important;
+  min-height: 24px !important;
+  max-width: 24px !important;
+  max-height: 24px !important;
+  box-shadow: 3px 3px 6px #bebebe, -3px -3px 6px #ffffff !important;
+}
+
+.compact-stock-actions .manual-pair-btn:hover {
+  background: linear-gradient(145deg, #2563eb, #1d4ed8) !important;
+  transform: scale(1.05) !important;
+  box-shadow: 2px 2px 4px #bebebe, -2px -2px 4px #ffffff !important;
+}
+
+.compact-stock-actions .manual-pair-btn:active {
+  transform: scale(0.95) !important;
+  box-shadow: inset 2px 2px 4px #1d4ed8, inset -2px -2px 4px #3b82f6 !important;
+}
+
+.compact-stock-actions .refresh-stock-btn {
+  width: 24px !important;
+  height: 24px !important;
+  border: none !important;
+  border-radius: 50% !important;
+  background: linear-gradient(145deg, #5b9eff, #2563eb) !important;
+  color: white !important;
+  font-size: 18px !important;
+  font-weight: bold !important;
+  cursor: pointer !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 0 !important;
+  flex-shrink: 0 !important;
+  transition: all 0.2s ease !important;
+  min-width: 24px !important;
+  min-height: 24px !important;
+  max-width: 24px !important;
+  max-height: 24px !important;
+  box-shadow: 3px 3px 6px #bebebe, -3px -3px 6px #ffffff !important;
+}
+
+.compact-stock-actions .refresh-stock-btn:hover {
+  background: linear-gradient(145deg, #2563eb, #1d4ed8) !important;
+  transform: scale(1.05) !important;
+  box-shadow: 2px 2px 4px #bebebe, -2px -2px 4px #ffffff !important;
+}
+
+.compact-stock-actions .refresh-stock-btn:active {
+  transform: scale(0.95) !important;
+  box-shadow: inset 2px 2px 4px #1d4ed8, inset -2px -2px 4px #3b82f6 !important;
+}
+
+.compact-stock-actions .expand-card-btn {
+  width: 28px !important;
+  height: 28px !important;
+  border: none !important;
+  border-radius: 50% !important;
+  background: linear-gradient(145deg, #5b9eff, #2563eb) !important;
+  color: white !important;
+  font-size: 21px !important;
+  font-weight: bold !important;
+  cursor: pointer !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 0 !important;
+  flex-shrink: 0 !important;
+  transition: all 0.2s ease !important;
+  min-width: 28px !important;
+  min-height: 28px !important;
+  max-width: 28px !important;
+  max-height: 28px !important;
+  box-shadow: 3px 3px 6px #bebebe, -3px -3px 6px #ffffff !important;
+}
+
+.compact-stock-actions .expand-card-btn:hover {
+  background: linear-gradient(145deg, #2563eb, #1d4ed8) !important;
+  transform: scale(1.05) !important;
+  box-shadow: 2px 2px 4px #bebebe, -2px -2px 4px #ffffff !important;
+}
+
+.compact-stock-actions .expand-card-btn:active {
+  transform: scale(0.95) !important;
+  box-shadow: inset 2px 2px 4px #1d4ed8, inset -2px -2px 4px #3b82f6 !important;
+}
+
+/* 股票结存样式 */
+.compact-stock-net {
+  font-weight: bold;
+  font-size: 10px;
+}
+
+.compact-stock-net.vertical {
+  font-size: 11px;
+  min-width: 60px;
+  text-align: right;
+}
+
+.compact-stock-net.positive {
+  color: #dc2626;
+}
+
+.compact-stock-net.negative {
+  color: #2563eb;
+}
+
+.compact-stock-net.zero {
+  color: #6b7280;
+}
+
+/* 气泡容器样式 */
+.compact-stock-bubbles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  row-gap: 4px;
+  align-items: flex-start;
+  width: 100%;
+  margin-bottom: 0px;
+}
+
+/* 气泡样式 */
+.compact-bubble {
+  padding: calc(2px * var(--bubble-scale, 1)) calc(10px * var(--bubble-scale, 1)) !important;
+  border-radius: calc(14px * var(--bubble-scale, 1)) !important;
+  font-weight: 900 !important;
+  font-size: calc(13px * var(--bubble-scale, 1)) !important;
+  line-height: 1.2 !important;
+  text-shadow: 0.5px 0 0 currentColor;
+  border: none;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  position: relative;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  white-space: nowrap;
+  z-index: 1;
+  height: auto !important;
+}
+
+/* 气泡序号样式 */
+.bubble-order {
+  position: absolute;
+  bottom: -2px;
+  right: 0;
+  font-size: 9px;
+  font-weight: normal;
+  font-style: italic;
+  color: black;
+  z-index: 2;
+  line-height: 1;
+}
+
+/* 最大序号的正圆形外框 */
+.bubble-order-max {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  border: 1px solid black;
+  border-radius: 50%;
+  background: white;
+  font-weight: bold;
+  font-style: normal;
+  font-size: 8px;
+}
+
+.compact-bubble.today-trade {
+  border: 1px solid currentColor !important;
+  border-radius: calc(14px * var(--bubble-scale, 1)) !important;
+}
+
+.compact-bubble.buy {
+  background: #bfdbfe;
+  color: #ef4444;
+}
+
+.compact-bubble.sell {
+  background: #fecaca;
+  color: #3b82f6;
+}
+
+.compact-bubble.latest-trade::after {
+  content: '✓';
+  position: absolute;
+  top: calc(-5px * var(--bubble-scale, 1));
+  left: calc(-2px * var(--bubble-scale, 1));
+  font-size: calc(14px * var(--bubble-scale, 1));
+  font-weight: bold;
+  color: black;
+  z-index: 10;
+}
+
+/* 配对气泡样式 */
+.compact-pair {
+  display: inline-flex;
+  gap: calc(3px * var(--bubble-scale, 1));
+  padding: calc(3px * var(--bubble-scale, 1));
+  border-radius: calc(16px * var(--bubble-scale, 1));
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 50%, #fcd34d 100%);
+  border: 1px solid #ef4444;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  white-space: nowrap;
+  align-items: center;
+}
+
+.compact-pair.both-today {
+  border: 1px solid #ef4444;
+}
+
+.compact-pair.one-not-today {
+  border: 1px dashed #ef4444;
+}
+
+.compact-pair .compact-bubble {
+  border: none !important;
+  border-radius: calc(14px * var(--bubble-scale, 1)) !important;
+  padding: calc(2px * var(--bubble-scale, 1)) calc(10px * var(--bubble-scale, 1)) !important;
+  font-size: calc(13px * var(--bubble-scale, 1)) !important;
+  font-weight: 900 !important;
+  line-height: 1.2 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  height: auto !important;
+}
+
+.compact-pair .compact-bubble.today-trade {
+  border: 1px solid currentColor !important;
+  border-radius: calc(14px * var(--bubble-scale, 1)) !important;
+  padding: calc(2px * var(--bubble-scale, 1)) calc(10px * var(--bubble-scale, 1)) !important;
+  font-size: calc(13px * var(--bubble-scale, 1)) !important;
+  font-weight: 900 !important;
+  line-height: 1.2 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  height: auto !important;
+}
+
+.compact-pair .compact-bubble.buy {
+}
+
+.compact-pair .compact-bubble.sell {
+}
+
+/* 配对交易样式 */
+.trade-pair {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  border: 1px solid #fcd34d;
+  border-radius: 16px;
+  cursor: pointer;
+  position: relative;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  margin: 0 8px 8px 0;
+  white-space: nowrap;
+}
+
+.trade-pair.both-today {
+  border: 1px solid #fcd34d;
+  border-color: #ef4444;
+}
+
+.trade-pair.one-not-today {
+  border: 1px dashed #fcd34d;
+  border-color: #ef4444;
+}
+
+.trade-pair:hover {
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  transform: translateY(-1px);
+  transition: all 0.2s ease;
+}
+
+.trade-pair .compact-bubble {
+  border: none !important;
+  border-radius: calc(14px * var(--bubble-scale, 1)) !important;
+  padding: calc(4px * var(--bubble-scale, 1)) calc(10px * var(--bubble-scale, 1)) !important;
+  font-size: calc(13px * var(--bubble-scale, 1)) !important;
+  font-weight: 900 !important;
+  line-height: 1.2 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  height: auto !important;
+}
+
+.trade-pair .compact-bubble.today-trade {
+  border: 1px solid currentColor !important;
+  border-radius: calc(14px * var(--bubble-scale, 1)) !important;
+  padding: calc(4px * var(--bubble-scale, 1)) calc(10px * var(--bubble-scale, 1)) !important;
+  font-size: calc(13px * var(--bubble-scale, 1)) !important;
+  font-weight: 900 !important;
+  line-height: 1.2 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  height: auto !important;
+}
+
+/* 操作区域样式 */
+.compact-actions {
+  display: flex;
+  gap: 10px;
+  padding: 10px;
+  background: #f9fafb;
+  border-top: 1px solid #e5e7eb;
+}
+
+.compact-btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.compact-btn.primary {
+  background: #3b82f6;
+  color: white;
+  box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
+}
+
+.compact-btn.primary:hover {
+  background: #2563eb;
+  box-shadow: 0 4px 8px rgba(59, 130, 246, 0.3);
+}
+
+.compact-btn.secondary {
+  background: #6b7280;
+  color: white;
+  box-shadow: 0 2px 4px rgba(107, 114, 128, 0.2);
+}
+
+.compact-btn.secondary:hover {
+  background: #4b5563;
+  box-shadow: 0 4px 8px rgba(107, 114, 128, 0.3);
+}
+
+/* 历史数据弹窗样式 */
+.history-data-content {
+  padding: 16px;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+  font-size: 14px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.history-data-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.history-data-title {
+  font-size: 16px;
+  font-weight: bold;
+  color: #1f2937;
+}
+
+.history-data-market {
+  font-size: 12px;
+  color: #6b7280;
+  background: #f3f4f6;
+  padding: 2px 8px;
+  border-radius: 12px;
+}
+
+.export-pdf-btn {
+  padding: 6px 14px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 6px rgba(102, 126, 234, 0.3);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.export-pdf-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+  background: linear-gradient(135deg, #5a67d8 0%, #6b46c1 100%);
+}
+
+.export-pdf-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 4px rgba(102, 126, 234, 0.3);
+}
+
+.export-pdf-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.stock-min-max-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 8px;
+  background-color: #f0fdf4;
+  border-radius: 6px;
+  border: 1px solid #86efac;
+}
+
+.price-bubble {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 10px 4px 10px;
+  border: 1px solid #93c5fd;
+  border-radius: 12px;
+  background: #bfdbfe;
+  font-size: 11px;
+  font-weight: 900;
+  color: #ef4444;
+  white-space: nowrap;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+  margin: 0;
+  position: relative;
+}
+
+.price-bubble.sell {
+  border-color: #fca5a5;
+  background: #fecaca;
+  color: #3b82f6;
+}
+
+.price-date {
+  font-size: 9px;
+  color: #64748b;
+  position: absolute;
+  top: -6px;
+  background: transparent;
+  padding: 0 4px;
+  font-weight: bold;
+}
+
+.price-value {
+  font-size: 14px;
+  font-weight: bold;
+}
+
+/* 多头/空头统计样式 */
+.position-stats-container {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 12px;
+  margin-bottom: 0;
+  padding: 0;
+  background: transparent;
+  border-radius: 0;
+  border: none;
+  align-items: center;
+  justify-content: flex-start;
+  margin-left: auto;
+}
+
+.position-stat-item {
+  display: grid;
+  grid-template-columns: 80px 1fr;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  min-width: 200px;
+  align-items: center;
+}
+
+.position-stat-item.long {
+  background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%);
+  border: 2px solid #4ade80;
+}
+
+.position-stat-item.short {
+  background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
+  border: 2px solid #f87171;
+}
+
+.position-label {
+  font-size: 13px;
+  font-weight: bold;
+  color: #374151;
+  justify-self: start;
+  text-align: left;
+  padding-left: 4px;
+}
+
+.position-data {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.position-value {
+  font-size: 14px;
+  font-weight: bold;
+  color: #1f2937;
+}
+
+.position-avg-price {
+  font-size: 11px;
+  color: #6b7280;
+  font-weight: 500;
+}
+
+.position-stat-divider {
+  width: 1px;
+  height: 30px;
+  background: linear-gradient(to bottom, #bae6fd, #7dd3fc);
+  border-radius: 1px;
+}
+
+.stock-min-max-container {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 12px;
+  margin-bottom: 0;
+  padding: 8px;
+  background-color: #f0fdf4;
+  border-radius: 6px;
+  border: 1px solid #86efac;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+.history-data-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 400px;
+  width: 100%;
+}
+
+.history-data-item {
+  display: flex;
+  flex-direction: row;
+  gap: 4px;
+  align-items: flex-start;
+  width: 100%;
+  flex-shrink: 0;
+  margin-bottom: 0px;
+}
+
+.history-data-date {
+  padding: 5px 8px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background-color: #ffffff;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 500;
+  color: #374151;
+  white-space: nowrap;
+  min-width: 85px;
+  flex-shrink: 0;
+}
+
+.history-data-bubbles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: 2px;
+  background-color: #ffffff;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+  min-height: 24px;
+  flex: 1;
+  align-items: center;
+}
+
+.history-data-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  color: #9ca3af;
+  font-style: italic;
+}
+
+/* 历史数据气泡大小调整 */
+.history-data-bubbles .compact-bubble {
+  padding: 4px 10px;
+  font-size: 13px;
+  border-radius: 12px;
+}
+
+.history-data-bubbles .trade-pair {
+  padding: 2px 3px;
+  gap: 2px;
+  margin: 0 2px 2px 0;
+}
+
+.history-data-bubbles .trade-pair .compact-bubble {
+  padding: 3px 8px;
+  font-size: 12px;
+}
+
+/* 历史数据中配对气泡的边框样式 */
+/* 跨天的配对气泡 - 黑色虚线边框（两个交易日期不同） */
+.history-data-bubbles .trade-pair.cross-day-pair {
+  border: 1px dashed #000;
+  border-radius: 8px;
+}
+
+/* 同一天的配对气泡 - 黑色实线边框（两个交易日期相同） */
+.history-data-bubbles .trade-pair.same-day-pair {
+  border: 1px solid #000;
+  border-radius: 8px;
+}
+
+/* 该日期的交易气泡 - 黑色细实线边框 */
+.history-data-bubbles .compact-bubble.target-date-bubble {
+  border: 1px solid #000 !important;
+}
+
+/* 打印样式优化 */
+@media print {
+  .compact-mode-container {
+    padding: 4px;
+    font-size: 10px;
+  }
+
+  .compact-mode-header {
+    padding: 4px 8px;
+    margin-bottom: 4px;
+  }
+
+  .compact-mode-title {
+    font-size: 12px;
+  }
+
+  .compact-mode-date {
+    font-size: 11px;
+  }
+
+  .compact-market-section {
+    margin-bottom: 3px;
+  }
+
+  .compact-market-title {
+    padding: 2px 8px;
+    font-size: 11px;
+  }
+
+  .compact-stock-grid {
+    gap: 4px;
+    padding: 4px;
+  }
+
+  .compact-stock-grid:not(.vertical) {
+    grid-template-columns: none !important;
+  }
+
+  .compact-stock-card {
+    padding: 4px;
+    border-radius: 4px;
+  }
+
+  .compact-stock-header {
+    padding-bottom: 2px;
+    margin-bottom: 2px;
+  }
+
+  .compact-stock-name {
+    font-size: 10px;
+  }
+
+  .compact-stock-net {
+    font-size: 9px;
+  }
+
+  .compact-stock-bubbles {
+    gap: 3px;
+  }
+
+  .compact-bubble {
+    padding: 2px 6px;
+    font-size: 10px;
+    border-radius: 8px;
+  }
+
+  .compact-pair {
+    padding: 1px;
+    gap: 2px;
+    border-radius: 10px;
+  }
+
+  .compact-pair .compact-bubble {
+    padding: 1px 4px;
+    font-size: 9px;
+    border-radius: 6px;
+  }
+
+  .trade-pair {
+    padding: 2px 3px;
+    gap: 2px;
+    margin: 0 2px 2px 0;
+  }
+
+  .history-data-content {
+    padding: 8px;
+    font-size: 11px;
+  }
+
+  .history-data-header {
+    margin-bottom: 8px;
+    padding-bottom: 4px;
+  }
+
+  .history-data-title {
+    font-size: 13px;
+  }
+
+  .stock-min-max-container {
+    gap: 6px;
+    margin-bottom: 8px;
+    padding: 4px;
+  }
+
+  .price-bubble {
+    padding: 4px 6px 2px 6px;
+    font-size: 9px;
+  }
+
+  .price-value {
+    font-size: 11px;
+  }
+
+  .history-data-list {
+    gap: 0px;
+  }
+
+  .history-data-item {
+    margin-bottom: 0px;
+  }
+
+  .history-data-date {
+    padding: 2px 4px;
+    font-size: 9px;
+    min-width: 65px;
+  }
+
+  .history-data-bubbles {
+    gap: 2px;
+    padding: 1px;
+    min-height: 18px;
+    border-radius: 4px;
+  }
+
+  .history-data-bubbles .compact-bubble {
+    padding: 2px 6px;
+    font-size: 10px;
+    border-radius: 8px;
+  }
+
+  .history-data-bubbles .trade-pair {
+    padding: 1px 2px;
+    gap: 1px;
+    margin: 0 1px 1px 0;
+  }
+
+  .history-data-bubbles .trade-pair .compact-bubble {
+    padding: 1px 4px;
+    font-size: 9px;
+    border-radius: 6px;
+  }
+
+  .view-toggle-btn,
+  .compact-btn,
+  .add-trade-btn,
+  .history-btn,
+  .history-days-control {
+    display: none;
+  }
+
+  .compact-divider-line {
+    margin: 4px 0;
+  }
+
+  .compact-history-container {
+    gap: 2px;
+    row-gap: 2px;
+    margin-top: 2px;
+  }
+
+  .compact-history-date {
+    font-size: 7px;
+    padding: 1px 4px;
+    border-width: 1px;
+  }
+
+  .compact-bubble.history {
+    padding: 1px 4px !important;
+    font-size: 8px !important;
+    border-radius: 4px !important;
+  }
+
+  .compact-pair.history {
+    gap: 1px;
+    padding: 1px;
+    border-radius: 6px;
+  }
+
+  .compact-pair.history .compact-bubble.history {
+    padding: 1px 3px !important;
+    font-size: 7px !important;
+    border-radius: 4px !important;
+  }
+}
+
+/* 分割线容器样式 */
+.compact-divider-container {
+  position: relative;
+  margin: 8px 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+/* 分割线样式 */
+.compact-divider-line {
+  height: 1px;
+  background: #d1d5db;
+  width: 100%;
+  position: absolute;
+  top: 50%;
+  left: 0;
+  transform: translateY(-50%);
+}
+
+/* 分割线文字样式 */
+.compact-divider-label {
+  position: relative;
+  z-index: 1;
+  background-color: white;
+  padding: 0 8px;
+  font-size: 10px;
+  font-weight: bold;
+  color: #374151;
+}
+
+/* 区块切换容器样式 */
+.compact-section-toggle {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin: 0px 0;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.compact-section-toggle:hover {
+  opacity: 0.8;
+  transform: translateY(-1px);
+}
+
+/* 历史数据切换checkbox样式 */
+.compact-history-toggle {
+  margin-right: 2px;
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  position: relative;
+  z-index: 2;
+}
+
+/* 股票切换checkbox样式 */
+.compact-stock-toggle {
+  margin-right: 1px;
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  position: relative;
+  z-index: 2;
+}
+
+/* 历史日期样式 */
+.compact-history-date {
+  font-size: 10px;
+  color: #6b7280;
+  margin-top: 4px;
+  margin-bottom: 2px;
+}
+
+/* 历史气泡容器样式 */
+.compact-history-bubbles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  row-gap: 2px;
+  align-items: flex-start;
+  width: 100%;
+}
+
+/* 历史气泡样式 - 不使用缩放 */
+.compact-bubble.history {
+  padding: 3px 9px !important;
+  border-radius: 11px !important;
+  font-size: 12px !important;
+}
+
+/* 为序号1的历史气泡添加黑色细线边框 */
+.compact-bubble.history .bubble-order.bubble-order-max {
+  border: 1px solid black !important;
+  background: white !important;
+  border-radius: 50% !important;
+  width: 12px !important;
+  height: 12px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  font-weight: bold !important;
+  font-style: normal !important;
+  font-size: 8px !important;
+}
+
+.compact-pair.history {
+  gap: 3px;
+  padding: 2px;
+  border-radius: 14px;
+}
+
+/* 跨天的配对气泡 - 黑色虚线边框（两个交易日期不同） */
+.compact-pair.history.cross-day-pair {
+  border: 1px dashed #000;
+}
+
+/* 同一天的配对气泡 - 黑色实线边框（两个交易日期相同） */
+.compact-pair.history.same-day-pair {
+  border: 1px solid #000;
+}
+
+.compact-pair.history .compact-bubble.history {
+  padding: 3px 7px !important;
+  font-size: 11px !important;
+  border-radius: 10px !important;
+}
+
+/* 该日期的交易气泡 - 黑色细实线边框 */
+.compact-bubble.history.target-date-bubble {
+  border: 1px solid #000 !important;
+}
+
+/* 历史资料容器样式 */
+.compact-history-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  row-gap: 2px;
+  align-items: center;
+  margin-top: 0px;
+}
+
+/* 历史日期样式 */
+.compact-history-date {
+  font-size: 10px;
+  font-weight: bold;
+  color: #000000;
+  padding: 2px 4px;
+  border: 2px solid #000000;
+  border-radius: 2px;
+  background: linear-gradient(135deg, #d1d5db 0%, #9ca3af 100%);
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* 当日数据标签样式 */
+.compact-today-label {
+  font-size: 10px;
+  color: #000000;
+  margin-top: 4px;
+  margin-bottom: 8px;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid #fcd34d;
+}
+
+/* 交易建议标题样式 */
+.compact-trading-suggestion-title {
+  font-size: 14px;
+  font-weight: bold;
+  color: #1f2937;
+  text-align: center;
+  margin-bottom: 8px;
+  padding: 4px 8px;
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  border-radius: 6px;
+  border: 1px solid #fcd34d;
+}
+
+/* 未配对买入标签样式 */
+.compact-unpaired-buy-label {
+  color: #dc2626;
+  border-color: #dc2626;
+  background: linear-gradient(135deg, #fecaca 0%, #fca5a5 100%);
+}
+
+/* 未配对卖出标签样式 */
+.compact-unpaired-sell-label {
+  color: #2563eb;
+  border-color: #2563eb;
+  background: linear-gradient(135deg, #bfdbfe 0%, #93c5fd 100%);
+}
+
+/* 左右两列布局容器 */
+.compact-unpaired-split-container {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 4px;
+  width: 100%;
+}
+
+/* 左边列 - 未配对卖出 */
+.compact-unpaired-sell-column {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  padding: 8px;
+  min-width: 0;
+}
+
+/* 右边列 - 未配对买入 */
+.compact-unpaired-buy-column {
+  background: #f0fdf4;
+  border: 1px solid #86efac;
+  border-radius: 8px;
+  padding: 8px;
+  min-width: 0;
+}
+
+/* 列标题样式 */
+.compact-unpaired-column-title {
+  font-size: 12px;
+  font-weight: bold;
+  text-align: center;
+  margin-bottom: 8px;
+}
+
+.compact-unpaired-column-title.sell {
+  color: #dc2626;
+}
+
+.compact-unpaired-column-title.buy {
+  color: #16a34a;
+}
+
+/* 列内容气泡容器 */
+.compact-unpaired-column-bubbles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  row-gap: 4px;
+  align-items: flex-start;
+}
+
+/* 历史气泡最新交易标记 */
+.compact-bubble.history.latest-trade::after {
+  content: '✓';
+  position: absolute;
+  top: -4px;
+  left: -2px;
+  font-size: 12px;
+  font-weight: bold;
+  color: black;
+  z-index: 10;
+}
+
+/* 属于该日期的交易气泡黑色边框 */
+.compact-bubble.target-date-trade {
+  border: 1px solid black !important;
+}
+
+/* 股票卡片容器 - 为折页效果设置相对定位 */
+.compact-stock-card {
+  position: relative;
+}
+
+/* 股票折叠按钮 - 折页效果 */
+.compact-stock-collapse {
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 18px !important;
+  height: 18px !important;
+  border: none !important;
+  background: transparent !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  cursor: pointer !important;
+  z-index: 10 !important;
+  overflow: hidden !important;
+}
+
+/* 所有折页按钮容器 */
+.compact-stock-collapse,
+.compact-note-toggle,
+.compact-bottom-left-toggle,
+.compact-bottom-right-toggle {
+  position: absolute !important;
+  width: 18px !important;
+  height: 18px !important;
+  border: none !important;
+  background: transparent !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  cursor: pointer !important;
+  z-index: 10 !important;
+  overflow: hidden !important;
+}
+
+/* 左上折页按钮 */
+.compact-stock-collapse {
+  top: 0 !important;
+  left: 0 !important;
+}
+
+/* 右上折页按钮 */
+.compact-note-toggle {
+  top: 0 !important;
+  right: 0 !important;
+}
+
+/* 左下折页按钮 */
+.compact-bottom-left-toggle {
+  bottom: 0 !important;
+  left: 0 !important;
+}
+
+/* 右下折页按钮 */
+.compact-bottom-right-toggle {
+  bottom: 0 !important;
+  right: 0 !important;
+}
+
+/* 所有折页的主要内容 */
+.compact-stock-collapse::before,
+.compact-note-toggle::before,
+.compact-bottom-left-toggle::before,
+.compact-bottom-right-toggle::before {
+  content: '' !important;
+  position: absolute !important;
+  width: 0 !important;
+  height: 0 !important;
+  z-index: 1 !important;
+  transition: all 0.2s ease !important;
+}
+
+/* 左上折页 */
+.compact-stock-collapse::before {
+  top: 0 !important;
+  left: 0 !important;
+  border-top: 18px solid var(--corner-color, #fef3c7) !important;
+  border-right: 18px solid transparent !important;
+  box-shadow: 1px 1px 0 0 black !important;
+}
+
+.compact-stock-collapse[data-expanded="true"]::before {
+  border-top-color: var(--corner-color, #bae6fd) !important;
+}
+
+/* 右上折页 */
+.compact-note-toggle::before {
+  top: 0 !important;
+  right: 0 !important;
+  border-top: 18px solid var(--corner-color, #fef3c7) !important;
+  border-left: 18px solid transparent !important;
+  box-shadow: -1px 1px 0 0 black !important;
+}
+
+/* 右上折页有备注时 - 保持边框 */
+.compact-note-toggle.has-note::before {
+  box-shadow: -1px 1px 0 0 black !important;
+}
+
+/* 右上折页有备注时显示小红点 */
+.compact-note-toggle.has-note::after {
+  content: '' !important;
+  position: absolute !important;
+  top: 4px !important;
+  right: 4px !important;
+  width: 5px !important;
+  height: 5px !important;
+  background: #ef4444 !important;
+  border-radius: 50% !important;
+  z-index: 100 !important;
+  border: none !important;
+  box-shadow: none !important;
+  display: block !important;
+}
+
+/* 左下折页 */
+.compact-bottom-left-toggle::before {
+  bottom: 0 !important;
+  left: 0 !important;
+  border-bottom: 18px solid var(--corner-color, #fef3c7) !important;
+  border-right: 18px solid transparent !important;
+  box-shadow: 1px -1px 0 0 black !important;
+}
+
+/* 右下折页 */
+.compact-bottom-right-toggle::before {
+  bottom: 0 !important;
+  right: 0 !important;
+  border-bottom: 18px solid var(--corner-color, #fef3c7) !important;
+  border-left: 18px solid transparent !important;
+  box-shadow: -1px -1px 0 0 black !important;
+}
+
+/* 悬停效果 */
+.compact-stock-collapse:hover::before,
+.compact-note-toggle:hover::before,
+.compact-bottom-left-toggle:hover::before,
+.compact-bottom-right-toggle:hover::before {
+  opacity: 0.8 !important;
+}
+
+/* 清理多余的样式 - 没有备注时不显示 ::after */
+.compact-stock-collapse::after,
+.compact-bottom-left-toggle::after,
+.compact-bottom-right-toggle::after {
+  display: none !important;
+}
+
+/* 确保没有备注时的 ::after 不显示 */
+.compact-note-toggle:not(.has-note)::after {
+  display: none !important;
+}
+
+/* 特殊交易数量气泡淡黄色背景 */
+.compact-bubble.special-qty {
+  background-color: #FFF9C4 !important;
+}
+
+/* 拖拽样式 */
+.compact-stock-card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  position: relative;
+}
+
+.compact-stock-card:hover {
+  cursor: grab;
+}
+
+.compact-stock-card:active {
+  cursor: grabbing;
+}
+
+.compact-stock-card.drag-over {
+  transform: scale(1.02);
+}
+
+/* 左侧插入提示 */
+.compact-stock-card.drag-over-left::before {
+  content: '';
+  position: absolute;
+  left: -4px;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: #3b82f6;
+  border-radius: 2px;
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.5);
+}
+
+/* 右侧插入提示 */
+.compact-stock-card.drag-over-right::after {
+  content: '';
+  position: absolute;
+  right: -4px;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: #3b82f6;
+  border-radius: 2px;
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.5);
+}
+
+/* 股票颜色选择器外层容器（使用 label 标签以支持 iPhone Safari） */
+.compact-stock-color-wrapper {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: conic-gradient(
+    from 0deg,
+    #fef3c7,
+    #fce7f3,
+    #e0f2fe,
+    #dcfce7,
+    #f3e8ff,
+    #fff7ed,
+    #fef3c7
+  );
+  border-radius: 4px;
+  transition: transform 0.2s ease;
+  /* 确保 label 可以接收点击事件 */
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.compact-stock-color-wrapper:hover {
+  transform: scale(1.1);
+}
+
+/* 股票颜色选择器内层方块 */
+.compact-stock-color-inner {
+  width: 14px;
+  height: 14px;
+  border: 1px solid #d1d5db;
+  border-radius: 2px;
+  background: white;
+}
+
+/* 隐藏的原生颜色选择器（兼容 iPhone Safari） */
+.compact-stock-color-picker-hidden {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  opacity: 0;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: none;
+  /* 注意：移除 pointer-events: none 以支持 iPhone Safari 的 label 关联 */
+  /* 使用 clip 或 overflow: hidden 来视觉隐藏，而不是阻止交互 */
+  z-index: 99999;
+  /* 确保在 iOS 上可以被 label 触发 */
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+/* 备注编辑器样式 */
+.compact-note-editor {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  margin-top: 8px;
+  padding: 8px;
+  background: #fffbeb;
+  border-radius: 4px;
+  border: 1px solid #fcd34d;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* 备注文本框样式 */
+.compact-note-textarea {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  padding: 6px;
+  border: 1px solid #fcd34d;
+  border-radius: 3px;
+  background: white;
+  font-size: 12px;
+  resize: both;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+  box-sizing: border-box;
+  overflow-y: auto;
+}
+
+/* 股票内容区域样式 - 确保flex布局 */
+.compact-stock-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-height: 0;
+}
+
+/* 股票卡片样式 - 确保高度适应内容 */
+.compact-stock-card {
+  min-height: 100px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 股票头部样式 - 固定高度 */
+.compact-stock-header {
+  flex-shrink: 0;
+}
+
+/* 股票内容区域样式 - 占据剩余空间 */
+.compact-stock-content {
+  flex: 1;
+  overflow: hidden;
+}
+
+/* 智能新增建议结果容器 - 确保高优先级显示 */
+.smart-add-results {
+  position: relative;
+  z-index: 200;
+}
+
+/* 建议价格容器样式 */
+.compact-suggestion-container {
+  margin-top: 8px;
+  margin-bottom: 8px;
+  padding: 6px;
+  background: #f8fafc;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+}
+
+.compact-suggestion-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.compact-suggestion-item {
+  flex: 1;
+  padding: 8px;
+  border-radius: 6px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.compact-suggestion-item.sell {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+}
+
+.compact-suggestion-item.buy {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+}
+
+.compact-suggestion-label {
+  font-size: 12px;
+  font-weight: bold;
+  margin-bottom: 4px;
+}
+
+.compact-suggestion-item.sell .compact-suggestion-label {
+  color: #991b1b;
+}
+
+.compact-suggestion-item.buy .compact-suggestion-label {
+  color: #166534;
+}
+
+.compact-suggestion-value {
+  font-size: 18px;
+  font-weight: bold;
+}
+
+.compact-suggestion-item.sell .compact-suggestion-value {
+  color: #dc2626;
+}
+
+.compact-suggestion-item.buy .compact-suggestion-value {
+  color: #16a34a;
+}
+
+/* 建议价格气泡样式 - 继续加大 */
+.suggestion-bubble {
+  padding: 5px 14px !important;
+  border-radius: 16px !important;
+  font-weight: 900 !important;
+  font-size: 17px !important;
+  line-height: 1.2 !important;
+  text-shadow: 0.5px 0 0 currentColor;
+  border: none !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  cursor: default;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  position: relative;
+  margin: 2px;
+  height: auto !important;
+}
+
+.suggestion-bubble.sell {
+  background: #fecaca !important;
+  color: #3b82f6 !important;
+}
+
+.suggestion-bubble.buy {
+  background: #bfdbfe !important;
+  color: #ef4444 !important;
+}
+
+.compact-threshold-container{
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 80px;
+  padding: 8px;
+}
+
+.compact-threshold-label{
+  font-size: 12px;
+  font-weight: bold;
+  color: #374151;
+}
+
+.compact-threshold-input-wrapper{
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.compact-threshold-input{
+  width: 50px;
+  padding: 4px;
+  text-align: center;
+  border: 2px solid #d1d5db;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: bold;
+}
+
+.compact-threshold-input:focus{
+  outline: none;
+  border-color: #3b82f6;
+}
+
+.compact-threshold-percent{
+  font-size: 14px;
+  font-weight: bold;
+  color: #374151;
+}
+
+.compact-threshold-diff{
+  font-size: 11px;
+  color: #059669;
+  font-weight: 600;
+  margin-top: 2px;
+}
+
+/* 下次交易价格建议标题样式 - 特殊行间距 */
+.compact-suggestion-title {
+  font-size: 10px;
+  color: #000000;
+  margin-top: 12px;
+  margin-bottom: 4px;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+/* 建议价格气泡包装器样式 */
+.suggestion-bubble-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+/* 建议价格气泡行 - 用于水平排列指示器和气泡 */
+.suggestion-bubble-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 建议价格气泡指示器 - 粗线条小圈圈 */
+.suggestion-bubble-indicator {
+  width: 12px;
+  height: 12px;
+  border: 3px solid #16a34a;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+/* 建议价格差值样式 */
+.suggestion-bubble-diff {
+  font-size: 11px;
+  font-weight: bold;
+  color: #6b7280;
+  margin-top: 2px;
+}
+
+/* 符合条件的历史未配对卖出气泡 - 红色小圈圈 */
+.suggestion-matching-sell {
+  position: relative !important;
+}
+
+.suggestion-matching-sell::before {
+  content: '' !important;
+  position: absolute !important;
+  left: -4px !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  width: 6px !important;
+  height: 6px !important;
+  border: 4px solid #dc2626 !important;
+  border-radius: 50% !important;
+  background: transparent !important;
+  z-index: 10 !important;
+}
+
+/* 符合条件的历史未配对买入气泡 - 红色小圈圈 */
+.suggestion-matching-buy {
+  position: relative !important;
+}
+
+.suggestion-matching-buy::before {
+  content: '' !important;
+  position: absolute !important;
+  left: -4px !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  width: 6px !important;
+  height: 6px !important;
+  border: 4px solid #dc2626 !important;
+  border-radius: 50% !important;
+  background: transparent !important;
+  z-index: 10 !important;
+}
+
+/* 序号1当日数据气泡样式 - 与建议价格气泡大小一致 */
+.order1-suggestion-bubbles .compact-bubble {
+  padding: 5px 14px !important;
+  border-radius: 16px !important;
+  font-weight: 900 !important;
+  font-size: 17px !important;
+}
+
+.order1-suggestion-bubbles .compact-pair {
+  padding: 3px !important;
+  gap: 4px !important;
+  border-radius: 18px !important;
+}
+
+.order1-suggestion-bubbles .compact-pair .compact-bubble {
+  padding: 5px 14px !important;
+  border-radius: 16px !important;
+  font-size: 17px !important;
+}
+
+.compact-suggestion-row {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  position: relative;
+  gap: 0;
+}
+
+.compact-suggestion-item {
+  flex: 1;
+  padding: 8px;
+  border-radius: 6px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* 阈值联动按钮容器 - 覆盖在中间 */
+.threshold-linkage-wrapper {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 10;
+}
+
+/* 阈值联动按钮 - 完全透明，只保留图标 */
+.threshold-linkage-btn {
+  width: 60px;
+  height: 60px;
+  border: none !important;
+  border-radius: 0;
+  background: transparent !important;
+  background-color: transparent !important;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  padding: 0;
+  box-shadow: none !important;
+}
+
+.threshold-linkage-btn:hover {
+  transform: scale(1.2);
+}
+
+/* 联动状态 - 图标 */
+.linkage-icon {
+  font-size: 36px;
+  font-weight: bold;
+  transition: all 0.2s ease;
+  filter: grayscale(0%);
+  opacity: 0.8;
+  text-shadow: 0 0 2px rgba(0, 0, 0, 0.3);
+}
+
+/* 联动激活状态 */
+.threshold-linkage-btn.linked .linkage-icon {
+  filter: grayscale(0%);
+  opacity: 1;
+  text-shadow: 0 0 4px rgba(0, 0, 0, 0.4);
+}
+
+/* 左→右联动：显示双向箭头 */
+.threshold-linkage-btn.linked.left-to-right .linkage-icon {
+  content: '↔️';
+}
+
+/* 右→左联动：显示双向箭头 */
+.threshold-linkage-btn.linked.right-to-left .linkage-icon {
+  content: '↔️';
+}
+
+/* 最高/最低单价气泡闪烁样式 */
+@keyframes priceBlinkHigh {
+  0%, 100% { 
+    background: #fecaca !important;
+    color: #dc2626 !important;
+    transform: scale(1);
+    box-shadow: 0 0 8px rgba(220, 38, 38, 0.6);
+    border: 2px solid #dc2626 !important;
+  }
+  50% { 
+    background: #fef3c7 !important;
+    color: #f59e0b !important;
+    transform: scale(1.08);
+    box-shadow: 0 0 16px rgba(245, 158, 11, 0.9);
+    border: 3px solid #f59e0b !important;
+  }
+}
+
+@keyframes priceBlinkLow {
+  0%, 100% { 
+    background: #bfdbfe !important;
+    color: #2563eb !important;
+    transform: scale(1);
+    box-shadow: 0 0 8px rgba(37, 99, 235, 0.6);
+    border: 2px solid #2563eb !important;
+  }
+  50% { 
+    background: #d1fae5 !important;
+    color: #059669 !important;
+    transform: scale(1.08);
+    box-shadow: 0 0 16px rgba(5, 150, 105, 0.9);
+    border: 3px solid #059669 !important;
+  }
+}
+
+.compact-bubble.price-highest {
+  animation: priceBlinkHigh 0.5s ease-in-out infinite;
+}
+
+.compact-bubble.price-lowest {
+  animation: priceBlinkLow 0.5s ease-in-out infinite;
+}
+
+/* 配对气泡中的最高/最低单价气泡 */
+.compact-pair .compact-bubble.price-highest,
+.trade-pair .compact-bubble.price-highest {
+  animation: priceBlinkHigh 0.5s ease-in-out infinite;
+}
+
+.compact-pair .compact-bubble.price-lowest,
+.trade-pair .compact-bubble.price-lowest {
+  animation: priceBlinkLow 0.5s ease-in-out infinite;
+}

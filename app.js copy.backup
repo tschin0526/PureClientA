@@ -1,0 +1,3863 @@
+// Simplified front-end-only trades app for pureClientA
+// - Stocks list is inlined from StockCodeList.txt and parsed to {name, qty, market}
+// - UI fields: #stockInput (datalist), #sideSelect, #priceInput, buttons #addTxBtn
+// - Stores trades in IndexedDB (migrated from localStorage key 'trades_v1')
+
+// 引入股票数据模块
+// 注意：在HTML中需要先加载stockData.js
+// 例如：<script src="stockData.js"></script>
+
+// IndexedDB 配置
+const DB_NAME = 'TradesDB';
+const DB_VERSION = 2;
+const STORE_NAME = 'trades';
+const OLD_STORAGE_KEY = 'trades_v1';
+
+// IndexedDB 封装
+class TradesDB {
+  constructor() {
+    this.db = null;
+  }
+
+  // 打开数据库
+  open() {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+      request.onerror = (event) => {
+        console.error('IndexedDB 打开失败:', event.target.error);
+        reject(event.target.error);
+      };
+
+      request.onsuccess = (event) => {
+        this.db = event.target.result;
+        resolve(this.db);
+      };
+
+      request.onupgradeneeded = (event) => {
+        const db = event.target.result;
+        
+        // 创建交易对象存储空间
+        if (!db.objectStoreNames.contains(STORE_NAME)) {
+          const store = db.createObjectStore(STORE_NAME, {
+            keyPath: 'id',
+            autoIncrement: false
+          });
+          
+          // 创建索引，用于快速查询
+          store.createIndex('date', 'date', { unique: false });
+          store.createIndex('createdAt', 'createdAt', { unique: false });
+          store.createIndex('stock', 'stock', { unique: false });
+          store.createIndex('market', 'market', { unique: false });
+          store.createIndex('side', 'side', { unique: false });
+        }
+        
+        // 创建配对结果对象存储空间
+        const PAIRINGS_STORE_NAME = 'pairings';
+        if (!db.objectStoreNames.contains(PAIRINGS_STORE_NAME)) {
+          const pairingsStore = db.createObjectStore(PAIRINGS_STORE_NAME, {
+            keyPath: 'stockName',
+            autoIncrement: false
+          });
+          
+          // 创建索引，用于快速查询
+          pairingsStore.createIndex('updatedAt', 'updatedAt', { unique: false });
+        }
+      };
+    });
+  }
+
+  // 从 localStorage 迁移数据到 IndexedDB
+  async migrateFromLocalStorage() {
+    try {
+      const oldData = localStorage.getItem(OLD_STORAGE_KEY);
+      if (oldData) {
+        const trades = JSON.parse(oldData);
+        if (trades.length > 0) {
+          await this.saveAll(trades);
+          localStorage.removeItem(OLD_STORAGE_KEY);
+          console.log('已从 localStorage 迁移', trades.length, '条记录到 IndexedDB');
+        }
+      }
+    } catch (error) {
+      console.error('从 localStorage 迁移数据失败:', error);
+    }
+  }
+
+  // 保存一条交易记录
+  save(trade) {
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction([STORE_NAME], 'readwrite');
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.put(trade);
+
+      request.onerror = (event) => {
+        reject(event.target.error);
+      };
+
+      request.onsuccess = (event) => {
+        resolve(event.target.result);
+      };
+    });
+  }
+
+  // 保存多条交易记录
+  saveAll(trades) {
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction([STORE_NAME], 'readwrite');
+      const store = transaction.objectStore(STORE_NAME);
+
+      trades.forEach(trade => {
+        store.put(trade);
+      });
+
+      transaction.oncomplete = (event) => {
+        resolve(trades.length);
+      };
+
+      transaction.onerror = (event) => {
+        reject(event.target.error);
+      };
+    });
+  }
+
+  // 获取所有交易记录
+  getAll() {
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction([STORE_NAME], 'readonly');
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.getAll();
+
+      request.onerror = (event) => {
+        reject(event.target.error);
+      };
+
+      request.onsuccess = (event) => {
+        resolve(event.target.result || []);
+      };
+    });
+  }
+
+  // 删除一条交易记录
+  delete(id) {
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction([STORE_NAME], 'readwrite');
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.delete(id);
+
+      request.onerror = (event) => {
+        reject(event.target.error);
+      };
+
+      transaction.oncomplete = (event) => {
+        resolve(true);
+      };
+
+      transaction.onerror = (event) => {
+        reject(event.target.error);
+      };
+    });
+  }
+
+  // 清空所有交易记录
+  clear() {
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction([STORE_NAME], 'readwrite');
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.clear();
+
+      request.onerror = (event) => {
+        reject(event.target.error);
+      };
+
+      request.onsuccess = (event) => {
+        resolve(true);
+      };
+    });
+  }
+
+  // 保存配对结果
+  savePairing(pairingData) {
+    return new Promise((resolve, reject) => {
+      const PAIRINGS_STORE_NAME = 'pairings';
+      const transaction = this.db.transaction([PAIRINGS_STORE_NAME], 'readwrite');
+      const store = transaction.objectStore(PAIRINGS_STORE_NAME);
+      
+      pairingData.updatedAt = new Date().toISOString();
+      
+      const request = store.put(pairingData);
+
+      request.onerror = (event) => {
+        reject(event.target.error);
+      };
+
+      transaction.oncomplete = (event) => {
+        resolve(true);
+      };
+
+      transaction.onerror = (event) => {
+        reject(event.target.error);
+      };
+    });
+  }
+
+  // 获取单个股票的配对结果
+  getPairing(stockName) {
+    return new Promise((resolve, reject) => {
+      const PAIRINGS_STORE_NAME = 'pairings';
+      const transaction = this.db.transaction([PAIRINGS_STORE_NAME], 'readonly');
+      const store = transaction.objectStore(PAIRINGS_STORE_NAME);
+      const request = store.get(stockName);
+
+      request.onerror = (event) => {
+        reject(event.target.error);
+      };
+
+      request.onsuccess = (event) => {
+        resolve(event.target.result || null);
+      };
+    });
+  }
+
+  // 获取所有配对结果
+  getAllPairings() {
+    return new Promise((resolve, reject) => {
+      const PAIRINGS_STORE_NAME = 'pairings';
+      const transaction = this.db.transaction([PAIRINGS_STORE_NAME], 'readonly');
+      const store = transaction.objectStore(PAIRINGS_STORE_NAME);
+      const request = store.getAll();
+
+      request.onerror = (event) => {
+        reject(event.target.error);
+      };
+
+      request.onsuccess = (event) => {
+        resolve(event.target.result || []);
+      };
+    });
+  }
+
+  // 删除单个股票的配对结果
+  deletePairing(stockName) {
+    return new Promise((resolve, reject) => {
+      const PAIRINGS_STORE_NAME = 'pairings';
+      const transaction = this.db.transaction([PAIRINGS_STORE_NAME], 'readwrite');
+      const store = transaction.objectStore(PAIRINGS_STORE_NAME);
+      const request = store.delete(stockName);
+
+      request.onerror = (event) => {
+        reject(event.target.error);
+      };
+
+      transaction.oncomplete = (event) => {
+        resolve(true);
+      };
+
+      transaction.onerror = (event) => {
+        reject(event.target.error);
+      };
+    });
+  }
+
+  // 清空所有配对结果
+  clearAllPairings() {
+    return new Promise((resolve, reject) => {
+      const PAIRINGS_STORE_NAME = 'pairings';
+      const transaction = this.db.transaction([PAIRINGS_STORE_NAME], 'readwrite');
+      const store = transaction.objectStore(PAIRINGS_STORE_NAME);
+      const request = store.clear();
+
+      request.onerror = (event) => {
+        reject(event.target.error);
+      };
+
+      request.onsuccess = (event) => {
+        resolve(true);
+      };
+    });
+  }
+}
+
+// 初始化数据库实例
+const tradesDB = new TradesDB();
+
+function generateId() { return 't_' + Date.now() + '_' + Math.floor(Math.random()*1000); }
+
+// UI elements
+let stockInput, stockListEl, sideSelect, priceInput, remarkInput, addBtn;
+let tableBody, summaryEl;
+
+// 筛选相关元素
+let filterDateInput, filterStockInput, filterStockList, filterBtn, resetBtn, clearAllBtn, clearPairingsBtn;
+
+// 视图模式相关元素
+let toggleViewBtn, tableView, bubbleView, textView;
+
+// 当前视图模式 ('table', 'bubble', 或 'text')
+let currentView = 'table';
+
+// 当前气泡模式 ('original' 或 'separated')
+let currentBubbleMode = 'original';
+
+// 配对状态
+let pairingState = {
+  latestPaired: false,
+  historyPaired: false
+};
+
+// 配对结果缓存（按股票名称存储）
+let pairingCache = {};
+
+// 配对气泡屏蔽状态（按股票名称存储）
+let pairBubbleHiddenState = {};
+
+// 股票折叠状态（按股票名称存储）
+let stockCollapsedState = {};
+
+// 气泡模式相关元素
+let taiwanStockBubbles, chinaStockBubbles;
+
+// 文本模式相关元素
+let textOutput;
+
+// 统计相关元素
+let toggleStatsBtn, statsContent;
+
+// 输入模式相关元素
+let singleInputMode, batchInputMode, multiStockInputMode;
+let batchStockInput, batchStockListEl, batchInput, addBatchBtn;
+let multiStockInput, addMultiStockBtn;
+
+// 当前输入模式 ('single', 'batch' 或 'multiStock')
+let currentInputMode = 'single';
+
+let trades = [];
+let filteredTrades = [];
+
+// populate datalist
+function populateDatalist() {
+  if (!stockListEl) return;
+  
+  stockListEl.innerHTML = '';
+  // 使用从stockData.js引入的STOCKS变量
+  STOCKS.forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s.name;
+    opt.label = `${s.name} (${s.qty}, ${s.market})`;
+    stockListEl.appendChild(opt);
+  });
+  
+  // 同时填充筛选下拉列表
+  if (filterStockList) {
+    filterStockList.innerHTML = '';
+    // 使用从stockData.js引入的STOCKS变量
+    STOCKS.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s.name;
+      opt.label = `${s.name} (${s.qty}, ${s.market})`;
+      filterStockList.appendChild(opt);
+    });
+  }
+  
+  // 同时填充批量输入下拉列表
+  if (batchStockListEl) {
+    batchStockListEl.innerHTML = '';
+    // 使用从stockData.js引入的STOCKS变量
+    STOCKS.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s.name;
+      opt.label = `${s.name} (${s.qty}, ${s.market})`;
+      batchStockListEl.appendChild(opt);
+    });
+  }
+  
+  // 同时填充新增交易模态框下拉列表
+  const addTradeStockList = document.getElementById('addTradeStockList');
+  if (addTradeStockList) {
+    addTradeStockList.innerHTML = '';
+    // 使用从stockData.js引入的STOCKS变量
+    STOCKS.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s.name;
+      opt.label = `${s.name} (${s.qty}, ${s.market})`;
+      addTradeStockList.appendChild(opt);
+    });
+  }
+}
+
+function findStockByName(name) {
+  if (!name) return null;
+  const n = name.trim();
+  // 使用从stockData.js引入的STOCKS变量
+  return STOCKS.find(s => s.name === n) || null;
+}
+
+function renderTrades() {
+  tableBody.innerHTML = '';
+  const list = filteredTrades.slice().sort((a,b) => new Date(b.date) - new Date(a.date));
+  list.forEach(t => {
+    const tr = document.createElement('tr');
+    // 显示完整小数位数，不使用toFixed固定位数
+    const priceText = `${t.price}`;
+    const amountText = `${Number(t.amount)}`;
+    tr.innerHTML = `
+      <td>${t.date}</td>
+      <td>${escapeHtml(t.market)}</td>
+      <td>${escapeHtml(t.stock)}</td>
+      <td>${t.side === 'buy' ? '买入' : '卖出'}</td>
+      <td>${t.qty}</td>
+      <td>${priceText}</td>
+      <td>${escapeHtml(t.remark || '')}</td>
+      <td>${amountText}</td>
+      <td><button data-id="${t.id}" class="del">删除</button></td>
+    `;
+    tableBody.appendChild(tr);
+  });
+  attachRowHandlers();
+  renderSummary();
+}
+
+function renderSummary() {
+  // 重新获取统计相关元素，确保元素已存在
+  const statsContainer = summaryEl.querySelector('.stats-container');
+  const toggleStatsBtn = summaryEl.querySelector('#toggleStatsBtn');
+  const statsContent = summaryEl.querySelector('.stats-content');
+  const statsTitle = summaryEl.querySelector('.stats-header .stats-title');
+  
+  // 计算总统计
+  const totalCount = filteredTrades.length;
+  const totalAmount = filteredTrades.reduce((acc,t) => acc + Number(t.amount || 0), 0);
+  
+  // 计算买入卖出统计
+  const buyTrades = filteredTrades.filter(t => t.side === 'buy');
+  const buyCount = buyTrades.length;
+  const buyAmount = buyTrades.reduce((acc,t) => acc + Number(t.amount || 0), 0);
+  
+  const sellTrades = filteredTrades.filter(t => t.side === 'sell');
+  const sellCount = sellTrades.length;
+  const sellAmount = sellTrades.reduce((acc,t) => acc + Number(t.amount || 0), 0);
+  
+  // 计算台股统计
+  const taiwanTrades = filteredTrades.filter(t => t.market === '台股');
+  const taiwanCount = taiwanTrades.length;
+  
+  const taiwanBuyTrades = taiwanTrades.filter(t => t.side === 'buy');
+  const taiwanBuyCount = taiwanBuyTrades.length;
+  const taiwanBuyAmount = taiwanBuyTrades.reduce((acc,t) => acc + Number(t.amount || 0), 0);
+  
+  const taiwanSellTrades = taiwanTrades.filter(t => t.side === 'sell');
+  const taiwanSellCount = taiwanSellTrades.length;
+  const taiwanSellAmount = taiwanSellTrades.reduce((acc,t) => acc + Number(t.amount || 0), 0);
+  
+  const taiwanNetAmount = taiwanBuyAmount - taiwanSellAmount;
+  
+  // 计算陆股统计
+  const chinaTrades = filteredTrades.filter(t => t.market === '陆股');
+  const chinaCount = chinaTrades.length;
+  
+  const chinaBuyTrades = chinaTrades.filter(t => t.side === 'buy');
+  const chinaBuyCount = chinaBuyTrades.length;
+  const chinaBuyAmount = chinaBuyTrades.reduce((acc,t) => acc + Number(t.amount || 0), 0);
+  
+  const chinaSellTrades = chinaTrades.filter(t => t.side === 'sell');
+  const chinaSellCount = chinaSellTrades.length;
+  const chinaSellAmount = chinaSellTrades.reduce((acc,t) => acc + Number(t.amount || 0), 0);
+  
+  const chinaNetAmount = chinaBuyAmount - chinaSellAmount;
+  
+  // 计算净买入金额
+  const totalNetAmount = buyAmount - sellAmount;
+  
+  // 生成个股统计（按市场分组）
+  function generateStockStats(trades, marketName) {
+    // 按股票名称分组
+    const stockStats = {};
+    
+    // 初始化合计统计
+    let totalBuyCount = 0;
+    let totalBuyAmount = 0;
+    let totalSellCount = 0;
+    let totalSellAmount = 0;
+    
+    trades.forEach(trade => {
+      const stockName = trade.stock;
+      if (!stockStats[stockName]) {
+        stockStats[stockName] = {
+          name: stockName,
+          buyCount: 0,
+          buyAmount: 0,
+          sellCount: 0,
+          sellAmount: 0
+        };
+      }
+      
+      if (trade.side === 'buy') {
+        stockStats[stockName].buyCount++;
+        stockStats[stockName].buyAmount += Number(trade.amount || 0);
+        totalBuyCount++;
+        totalBuyAmount += Number(trade.amount || 0);
+      } else {
+        stockStats[stockName].sellCount++;
+        stockStats[stockName].sellAmount += Number(trade.amount || 0);
+        totalSellCount++;
+        totalSellAmount += Number(trade.amount || 0);
+      }
+    });
+    
+    // 转换为数组并排序
+    const sortedStats = Object.values(stockStats).sort((a, b) => a.name.localeCompare(b.name));
+    
+    // 计算总净买入金额
+    const totalNetAmount = totalBuyAmount - totalSellAmount;
+    const totalNetClass = totalNetAmount >= 0 ? 'net-positive' : 'net-negative';
+    
+    // 生成HTML表格
+    let html = `<h4 style="margin: 16px 0 8px 0; color: #374151; font-size: 14px;">${marketName}个股统计</h4>`;
+    html += `<div class="stock-stats-table-container" style="margin-bottom: 16px; overflow-x: auto;">`;
+    html += `<table class="stock-stats-table" style="width: 100%; border-collapse: collapse; font-size: 13px;">`;
+    html += `<thead><tr style="background-color: #f3f4f6;"><th style="padding: 8px; border: 1px solid #e5e7eb; text-align: left;">股票名称</th><th style="padding: 8px; border: 1px solid #e5e7eb; text-align: right;">买入笔数</th><th style="padding: 8px; border: 1px solid #e5e7eb; text-align: right;">买入金额</th><th style="padding: 8px; border: 1px solid #e5e7eb; text-align: right;">卖出笔数</th><th style="padding: 8px; border: 1px solid #e5e7eb; text-align: right;">卖出金额</th><th style="padding: 8px; border: 1px solid #e5e7eb; text-align: right;">净买入金额</th></tr></thead>`;
+    html += `<tbody>`;
+    
+    sortedStats.forEach(stock => {
+      const netAmount = stock.buyAmount - stock.sellAmount;
+      const netClass = netAmount >= 0 ? 'net-positive' : 'net-negative';
+      html += `<tr>`;
+      html += `<td style="padding: 8px; border: 1px solid #e5e7eb;">${escapeHtml(stock.name)}</td>`;
+      html += `<td style="padding: 8px; border: 1px solid #e5e7eb; text-align: right;">${stock.buyCount}</td>`;
+      html += `<td style="padding: 8px; border: 1px solid #e5e7eb; text-align: right;">${stock.buyAmount}</td>`;
+      html += `<td style="padding: 8px; border: 1px solid #e5e7eb; text-align: right;">${stock.sellCount}</td>`;
+      html += `<td style="padding: 8px; border: 1px solid #e5e7eb; text-align: right;">${stock.sellAmount}</td>`;
+      html += `<td style="padding: 8px; border: 1px solid #e5e7eb; text-align: right;"><span class="${netClass}">${netAmount}</span></td>`;
+      html += `</tr>`;
+    });
+    
+    // 添加合计行
+    html += `<tr style="background-color: #e5e7eb; font-weight: bold;">`;
+    html += `<td style="padding: 8px; border: 1px solid #e5e7eb;">合计</td>`;
+    html += `<td style="padding: 8px; border: 1px solid #e5e7eb; text-align: right;">${totalBuyCount}</td>`;
+    html += `<td style="padding: 8px; border: 1px solid #e5e7eb; text-align: right;">${totalBuyAmount}</td>`;
+    html += `<td style="padding: 8px; border: 1px solid #e5e7eb; text-align: right;">${totalSellCount}</td>`;
+    html += `<td style="padding: 8px; border: 1px solid #e5e7eb; text-align: right;">${totalSellAmount}</td>`;
+    html += `<td style="padding: 8px; border: 1px solid #e5e7eb; text-align: right;"><span class="${totalNetClass}">${totalNetAmount}</span></td>`;
+    html += `</tr>`;
+    
+    html += `</tbody></table></div>`;
+    return html;
+  }
+  
+  // 生成台股和陆股的个股统计HTML
+  const taiwanStockStatsHtml = generateStockStats(taiwanTrades, '台股');
+  const chinaStockStatsHtml = generateStockStats(chinaTrades, '陆股');
+  
+  // 生成统计HTML
+  const statsHtml = `
+    <div class="stats-grid">
+      <!-- 总统计 -->
+      <div class="stats-item">
+        <div class="stats-item-title">总交易笔数</div>
+        <div class="stats-item-value">${totalCount} 笔</div>
+      </div>
+      <div class="stats-item">
+        <div class="stats-item-title">总交易金额</div>
+        <div class="stats-item-value">${totalAmount} 元</div>
+      </div>
+      <div class="stats-item ${totalNetAmount >= 0 ? 'net-positive' : 'net-negative'}">
+        <div class="stats-item-title">总净买入金额</div>
+        <div class="stats-item-value">${totalNetAmount} 元</div>
+      </div>
+      
+      <!-- 台股统计 -->
+      <div class="stats-item">
+        <div class="stats-item-title">台股总笔数</div>
+        <div class="stats-item-value">${taiwanCount} 笔</div>
+      </div>
+      <div class="stats-item">
+        <div class="stats-item-title">台股买入笔数</div>
+        <div class="stats-item-value">${taiwanBuyCount} 笔</div>
+      </div>
+      <div class="stats-item">
+        <div class="stats-item-title">台股买入金额</div>
+        <div class="stats-item-value">${taiwanBuyAmount} 元</div>
+      </div>
+      <div class="stats-item">
+        <div class="stats-item-title">台股卖出笔数</div>
+        <div class="stats-item-value">${taiwanSellCount} 笔</div>
+      </div>
+      <div class="stats-item">
+        <div class="stats-item-title">台股卖出金额</div>
+        <div class="stats-item-value">${taiwanSellAmount} 元</div>
+      </div>
+      <div class="stats-item ${taiwanNetAmount >= 0 ? 'net-positive' : 'net-negative'}">
+        <div class="stats-item-title">台股净买入金额</div>
+        <div class="stats-item-value">${taiwanNetAmount} 元</div>
+      </div>
+      
+      <!-- 陆股统计 -->
+      <div class="stats-item">
+        <div class="stats-item-title">陆股总笔数</div>
+        <div class="stats-item-value">${chinaCount} 笔</div>
+      </div>
+      <div class="stats-item">
+        <div class="stats-item-title">陆股买入笔数</div>
+        <div class="stats-item-value">${chinaBuyCount} 笔</div>
+      </div>
+      <div class="stats-item">
+        <div class="stats-item-title">陆股买入金额</div>
+        <div class="stats-item-value">${chinaBuyAmount} 元</div>
+      </div>
+      <div class="stats-item">
+        <div class="stats-item-title">陆股卖出笔数</div>
+        <div class="stats-item-value">${chinaSellCount} 笔</div>
+      </div>
+      <div class="stats-item">
+        <div class="stats-item-title">陆股卖出金额</div>
+        <div class="stats-item-value">${chinaSellAmount} 元</div>
+      </div>
+      <div class="stats-item ${chinaNetAmount >= 0 ? 'net-positive' : 'net-negative'}">
+        <div class="stats-item-title">陆股净买入金额</div>
+        <div class="stats-item-value">${chinaNetAmount} 元</div>
+      </div>
+    </div>
+    
+    <!-- 个股统计 -->
+    <div class="stock-stats-section">
+      ${taiwanStockStatsHtml}
+      ${chinaStockStatsHtml}
+    </div>
+  `;
+  
+  // 更新统计内容
+  if (statsContent) {
+    statsContent.innerHTML = statsHtml;
+  }
+  
+  // 更新顶部统计摘要
+  if (statsTitle) {
+    statsTitle.innerHTML = `
+      <strong>总笔数：</strong>${totalCount} 笔 &nbsp; | &nbsp; 
+      <strong>总金额：</strong>${totalAmount} 元 &nbsp; | &nbsp; 
+      <strong>净买入：</strong><span class="${totalNetAmount >= 0 ? 'net-positive' : 'net-negative'}">${totalNetAmount} 元</span>
+    `;
+  }
+  
+  // 移除renderSummary中的事件监听器，避免与initFilters中的冲突
+  // 事件监听器已在initFilters函数中绑定
+}
+
+function escapeHtml(s) { if (!s) return ''; return String(s).replace(/[&<>'"]/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'})[m]); }
+
+function attachRowHandlers() {
+  document.querySelectorAll('button.del').forEach(btn => {
+    btn.onclick = async () => {
+      const id = btn.getAttribute('data-id');
+      if (!id) return;
+      if (confirm('确定删除？')) {
+        // 获取要删除的交易信息
+        const tradeToDelete = trades.find(t => t.id === id);
+        
+        // 删除交易
+        await tradesDB.delete(id);
+        
+        // 如果删除了交易，保留已有的配对结果（配对仅在用户点击“全部取消配对”时清除）
+        // 以前这里会删除该股票的配对数据；现保留 pairing 数据以满足不自动删除的规则。
+        
+        await loadTrades();
+        applyFilters();
+      }
+    };
+  });
+}
+
+// 应用筛选
+function applyFilters() {
+  filteredTrades = [...trades];
+  
+  // 按日期筛选
+  const filterDate = filterDateInput ? filterDateInput.value.trim() : '';
+  if (filterDate) {
+    filteredTrades = filteredTrades.filter(t => t.date === filterDate);
+  }
+  
+  // 按股票筛选
+  const filterStock = filterStockInput ? filterStockInput.value.trim() : '';
+  if (filterStock) {
+    filteredTrades = filteredTrades.filter(t => t.stock === filterStock);
+  }
+  
+  // 如果设置了筛选日期，在气泡模式下自动切换到原始模式
+  if (filterDate && currentView === 'bubble') {
+    currentBubbleMode = 'original';
+  }
+  
+  // 根据当前视图模式渲染
+  if (currentView === 'table') {
+    renderTrades();
+  } else if (currentView === 'bubble') {
+    renderBubbleView();
+  } else if (currentView === 'text') {
+    renderTextView();
+  }
+  
+  // 重新计算并更新统计信息
+  renderSummary();
+}
+
+// 重置筛选
+function resetFilters() {
+  if (filterDateInput) filterDateInput.value = '';
+  if (filterStockInput) filterStockInput.value = '';
+  applyFilters();
+}
+
+// 加载交易记录
+async function loadTrades() {
+  try {
+    trades = await tradesDB.getAll();
+    filteredTrades = [...trades];
+    // 暴露给调试
+    window._trades = trades;
+    return trades;
+  } catch (error) {
+    console.error('加载交易记录失败:', error);
+    trades = [];
+    filteredTrades = [];
+    return [];
+  }
+}
+
+// 初始化筛选功能
+function initFilters() {
+  filterDateInput = document.getElementById('filterDate');
+  filterStockInput = document.getElementById('filterStock');
+  filterStockList = document.getElementById('filterStockList');
+  filterBtn = document.getElementById('filterBtn');
+  resetFilterBtn = document.getElementById('resetFilterBtn');
+  clearAllBtn = document.getElementById('clearAll');
+  clearPairingsBtn = document.getElementById('clearPairings');
+  
+  // 视图模式相关元素
+  toggleViewBtn = document.getElementById('toggleViewBtn');
+  tableView = document.getElementById('tableView');
+  bubbleView = document.getElementById('bubbleView');
+  textView = document.getElementById('textView');
+  
+  // 气泡模式相关元素
+  taiwanStockBubbles = document.getElementById('taiwanStockBubbles');
+  chinaStockBubbles = document.getElementById('chinaStockBubbles');
+  
+  // 气泡模式选择器相关元素
+  const bubbleModeBtn = document.getElementById('bubbleModeBtn');
+  
+  // 配对按钮相关元素
+  const toggleAllPairBtn = document.getElementById('toggleAllPairBtn');
+  const toggleAllPairBubbleBtn = document.getElementById('toggleAllPairBubbleBtn');
+  const toggleAllCollapseBtn = document.getElementById('toggleAllCollapseBtn');
+  
+  // 文本模式相关元素
+  textOutput = document.getElementById('textOutput');
+  
+  // 统计相关元素
+  toggleStatsBtn = document.getElementById('toggleStatsBtn');
+  statsContent = document.querySelector('.stats-content');
+  
+  // 折叠统计功能
+  if (toggleStatsBtn && statsContent) {
+    // 添加点击事件监听器
+    toggleStatsBtn.onclick = () => {
+      const isVisible = statsContent.style.display !== 'none';
+      if (isVisible) {
+        statsContent.style.display = 'none';
+        toggleStatsBtn.textContent = '▼';
+      } else {
+        statsContent.style.display = 'block';
+        toggleStatsBtn.textContent = '▲';
+      }
+    };
+  }
+  
+  if (filterBtn) {
+    filterBtn.addEventListener('click', applyFilters);
+  }
+  
+  if (resetFilterBtn) {
+    resetFilterBtn.addEventListener('click', resetFilters);
+  }
+  
+  if (clearAllBtn) {
+    clearAllBtn.addEventListener('click', async () => {
+      // 要求输入密码
+      const password = prompt('请输入密码以确认清空所有记录（密码：123456）：');
+      
+      // 验证密码
+      if (password !== '123456') {
+        alert('密码错误，清空操作已取消');
+        return;
+      }
+      
+      // 密码正确，继续执行清空操作
+      if (confirm('确定要清空所有交易记录吗？此操作不可恢复！')) {
+        try {
+          // 清空所有交易记录
+          await tradesDB.clear();
+          // 清空所有配对结果
+          await tradesDB.clearAllPairings();
+          // 清空内存缓存
+          pairingCache = {};
+          
+          await loadTrades();
+          applyFilters();
+          alert('所有交易记录已清空');
+        } catch (error) {
+          console.error('清空交易记录失败:', error);
+          alert('清空交易记录失败: ' + error.message);
+        }
+      }
+    });
+  }
+  
+  // 清空配对数据按钮事件
+  if (clearPairingsBtn) {
+    clearPairingsBtn.addEventListener('click', clearAllPairings);
+  }
+  
+  // 填充筛选下拉列表
+  if (filterStockList) {
+    filterStockList.innerHTML = '';
+    STOCKS.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s.name;
+      opt.label = `${s.name} (${s.qty}, ${s.market})`;
+      filterStockList.appendChild(opt);
+    });
+  }
+  
+  // 视图模式切换事件
+  if (toggleViewBtn) {
+    toggleViewBtn.addEventListener('click', () => {
+      // 循环切换视图模式：table → bubble → text → table
+      let newView;
+      if (currentView === 'table') {
+        newView = 'bubble';
+      } else if (currentView === 'bubble') {
+        newView = 'text';
+      } else {
+        newView = 'table';
+      }
+      switchView(newView);
+    });
+  }
+  
+  // 气泡模式切换事件
+  if (bubbleModeBtn) {
+    // 初始化按钮状态
+    bubbleModeBtn.dataset.mode = 'original';
+    bubbleModeBtn.textContent = '原始模式';
+    
+    bubbleModeBtn.addEventListener('click', async () => {
+      const currentMode = bubbleModeBtn.dataset.mode;
+      const newMode = currentMode === 'original' ? 'separated' : 'original';
+      
+      // 切换模式
+      currentBubbleMode = newMode;
+      
+      // 更新按钮状态
+      if (newMode === 'original') {
+        // 切换到原始模式，重置配对状态
+        pairingState.latestPaired = false;
+        pairingState.historyPaired = false;
+        // 清空配对缓存
+        pairingCache = {};
+        
+        bubbleModeBtn.dataset.mode = 'original';
+        bubbleModeBtn.textContent = '原始模式';
+        // 隐藏配对按钮
+        const pairingControls = document.getElementById('pairingControls');
+        if (pairingControls) {
+          pairingControls.style.display = 'none';
+        }
+      } else {
+        // 切换到配对模式，从数据库加载配对结果
+        try {
+          const allPairings = await tradesDB.getAllPairings();
+          // 将数据库中的配对结果加载到内存缓存
+          allPairings.forEach(pairing => {
+            pairingCache[pairing.stockName] = {
+              latest: pairing.latest || { pairedTrades: [], pairedBuyIds: [], pairedSellIds: [] },
+              history: pairing.history || { pairedTrades: [], pairedBuyIds: [], pairedSellIds: [] }
+            };
+          });
+          
+          bubbleModeBtn.dataset.mode = 'separated';
+          bubbleModeBtn.textContent = '配对模式';
+          // 显示配对按钮
+          const pairingControls = document.getElementById('pairingControls');
+          if (pairingControls) {
+            pairingControls.style.display = 'flex';
+          }
+        } catch (error) {
+          console.error('加载配对结果失败:', error);
+          alert('加载配对结果失败: ' + error.message);
+          // 切换失败，恢复到原始模式
+          currentBubbleMode = 'original';
+          bubbleModeBtn.dataset.mode = 'original';
+          bubbleModeBtn.textContent = '原始模式';
+        }
+      }
+      
+      // 重新渲染气泡视图
+      renderBubbleView();
+    });
+  }
+  
+  // 全部配对按钮事件
+  if (toggleAllPairBtn) {
+    toggleAllPairBtn.textContent = '全部配对';
+    toggleAllPairBtn.addEventListener('click', async () => {
+      // 执行全部配对（设置所有配对开关为 true），不支持取消功能
+      pairingState.latestPaired = true;
+      pairingState.historyPaired = true;
+      await executeAllPairing();
+      renderBubbleView();
+    });
+  }
+  
+  // 全部屏蔽配对气泡按钮事件
+  if (toggleAllPairBubbleBtn) {
+    // 初始化全部屏蔽配对按钮状态（默认为"全部屏蔽配对"）
+    toggleAllPairBubbleBtn.dataset.allHidden = 'false';
+    toggleAllPairBubbleBtn.textContent = '全部屏蔽配对';
+    
+    toggleAllPairBubbleBtn.addEventListener('click', () => {
+      const currentAllHidden = toggleAllPairBubbleBtn.dataset.allHidden === 'true';
+      const newAllHidden = !currentAllHidden;
+      
+      // 直接更新所有按钮的状态，而不是点击它们
+      const allToggleButtons = document.querySelectorAll('.toggle-pair-btn');
+      allToggleButtons.forEach(btn => {
+        const stockName = btn.dataset.stockName;
+        if (stockName) {
+          // 更新状态
+          pairBubbleHiddenState[stockName] = newAllHidden;
+          btn.dataset.hidden = newAllHidden;
+          btn.textContent = newAllHidden ? '展开配对' : '屏蔽配对';
+        }
+      });
+      
+      // 只在所有按钮更新完毕后重新渲染一次
+      renderBubbleView();
+      
+      // 更新全部屏蔽配对按钮状态
+      toggleAllPairBubbleBtn.dataset.allHidden = newAllHidden;
+      toggleAllPairBubbleBtn.textContent = newAllHidden ? '全部展开配对' : '全部屏蔽配对';
+    });
+  }
+  
+  // 全部折叠/展开按钮事件
+  if (toggleAllCollapseBtn) {
+    // 初始化全部折叠按钮状态（默认为"全部折叠"）
+    toggleAllCollapseBtn.dataset.allCollapsed = 'false';
+    toggleAllCollapseBtn.textContent = '全部折叠';
+    
+    toggleAllCollapseBtn.addEventListener('click', () => {
+      const currentAllCollapsed = toggleAllCollapseBtn.dataset.allCollapsed === 'true';
+      const newAllCollapsed = !currentAllCollapsed;
+      
+      // 遍历所有股票的折叠按钮，根据状态决定是否点击它们
+      const allCollapseButtons = document.querySelectorAll('.collapse-btn');
+      allCollapseButtons.forEach(btn => {
+        const stockName = btn.dataset.stockName;
+        if (stockName) {
+          // 更新状态
+          stockCollapsedState[stockName] = newAllCollapsed;
+          btn.dataset.collapsed = newAllCollapsed;
+          btn.textContent = newAllCollapsed ? '▶' : '▼';
+        }
+      });
+      
+      // 只在所有按钮更新完毕后重新渲染一次
+      renderBubbleView();
+      
+      // 更新全部折叠按钮状态
+      toggleAllCollapseBtn.dataset.allCollapsed = newAllCollapsed;
+      toggleAllCollapseBtn.textContent = newAllCollapsed ? '全部展开' : '全部折叠';
+    });
+  }
+}
+
+// 更新全部屏蔽/展开按钮的状态（简化版，直接使用dataset状态）
+function updateToggleAllButtonState() {
+  if (!toggleAllPairBtn) return;
+  
+  // 按钮状态由点击事件管理，这里只用于初始化
+  // 不需要做任何操作
+}
+
+// 切换视图模式
+function switchView(viewType) {
+  currentView = viewType;
+  
+  // 更新视图显示
+  if (tableView && bubbleView && textView) {
+    // 隐藏所有视图
+    tableView.style.display = 'none';
+    bubbleView.style.display = 'none';
+    textView.style.display = 'none';
+    
+    // 根据视图类型显示对应视图
+    if (viewType === 'table') {
+      tableView.style.display = 'block';
+      // 更新按钮文本
+      if (toggleViewBtn) {
+        toggleViewBtn.textContent = '切换到气泡模式';
+      }
+    } else if (viewType === 'bubble') {
+      bubbleView.style.display = 'block';
+      // 渲染气泡模式
+      renderBubbleView();
+      // 更新按钮文本
+      if (toggleViewBtn) {
+        toggleViewBtn.textContent = '切换到文本模式';
+      }
+    } else if (viewType === 'text') {
+      textView.style.display = 'block';
+      // 渲染文本模式
+      renderTextView();
+      // 更新按钮文本
+      if (toggleViewBtn) {
+        toggleViewBtn.textContent = '切换到表格模式';
+      }
+    }
+  }
+}
+
+// 渲染气泡视图
+function renderBubbleView() {
+  // 清空现有气泡
+  if (taiwanStockBubbles) taiwanStockBubbles.innerHTML = '';
+  if (chinaStockBubbles) chinaStockBubbles.innerHTML = '';
+  
+  // 检查是否设置了筛选日期
+  const filterDate = filterDateInput ? filterDateInput.value.trim() : '';
+  
+  // 如果设置了筛选日期，使用原始模式
+  if (filterDate) {
+    renderOriginalBubbleView();
+    return;
+  }
+  
+  // 根据当前气泡模式选择渲染方式
+  if (currentBubbleMode === 'original') {
+    renderOriginalBubbleView();
+  } else if (currentBubbleMode === 'separated') {
+    renderSeparatedBubbleView();
+  }
+}
+
+// 渲染原始气泡模式
+function renderOriginalBubbleView() {
+  // 按股票和方向分组交易记录
+  const stockTrades = {};
+  
+  filteredTrades.forEach(trade => {
+    const key = `${trade.stock}_${trade.qty}_${trade.market}`;
+    if (!stockTrades[key]) {
+      stockTrades[key] = {
+        stock: trade.stock,
+        qty: trade.qty,
+        market: trade.market,
+        trades: []
+      };
+    }
+    stockTrades[key].trades.push({
+      price: Number(trade.price),
+      side: trade.side
+    });
+  });
+  
+  // 遍历所有股票
+  Object.values(stockTrades).forEach(stockInfo => {
+    // 创建气泡元素
+    const bubbleDiv = document.createElement('div');
+    bubbleDiv.className = 'stock-bubble';
+    // 获取股票信息，使用type字段
+    const stockData = STOCKS.find(s => s.name === stockInfo.stock);
+    const type = stockData ? stockData.type : (stockInfo.market === '台股' ? 'tA' : 'cETF');
+    bubbleDiv.innerHTML = `${stockInfo.stock}(${stockInfo.qty}, ${type})`;
+    
+    // 创建价格气泡
+    stockInfo.trades.forEach(trade => {
+      const priceBubble = document.createElement('span');
+      
+      priceBubble.dataset.tradeId = trade.id;
+      priceBubble.dataset.price = trade.price;
+      priceBubble.dataset.side = trade.side;
+      priceBubble.dataset.stock = trade.stock;
+      priceBubble.dataset.date = trade.date;
+      priceBubble.dataset.remark = trade.remark || '';
+      
+      let priceText;
+      if (trade.side === 'sell') {
+        priceBubble.className = 'price-bubble sell';
+        priceText = `-${trade.price}`;
+      } else {
+        priceBubble.className = 'price-bubble buy';
+        priceText = `${trade.price}`;
+      }
+      
+      priceBubble.textContent = priceText;
+      bubbleDiv.appendChild(priceBubble);
+    });
+    
+    // 根据市场类型添加到对应容器
+    if (stockInfo.market === '台股') {
+      if (taiwanStockBubbles) {
+        taiwanStockBubbles.appendChild(bubbleDiv);
+      }
+    } else {
+      if (chinaStockBubbles) {
+        chinaStockBubbles.appendChild(bubbleDiv);
+      }
+    }
+  });
+}
+
+// 计算税费的辅助函数
+function calculateTax(stockName, side, amount) {
+  const stockData = STOCKS.find(s => s.name === stockName);
+  if (!stockData) return 0;
+  
+  const taxRate = TAX_RATES[stockData.type];
+  if (!taxRate) return 0;
+  
+  const rate = side === 'buy' ? taxRate.buy : taxRate.sell;
+  const calculatedTax = (amount * rate) / 10000;
+  
+  // 如果有最低税费金额，且计算出的税费小于最低金额，则使用最低金额
+  if (taxRate.minTaxAmount && calculatedTax < taxRate.minTaxAmount) {
+    return taxRate.minTaxAmount;
+  }
+  
+  return calculatedTax;
+}
+
+// 改进的配对算法 - 找到所有可能的配对组合
+function findBestPairs(buyTrades, sellTrades, stockName) {
+  const pairedTrades = [];
+  const usedBuyIndices = new Set();
+  const usedSellIndices = new Set();
+  
+  // 按价格排序
+  const sortedBuys = buyTrades.map((trade, index) => ({ trade, originalIndex: index }))
+    .sort((a, b) => a.trade.price - b.trade.price);
+  const sortedSells = sellTrades.map((trade, index) => ({ trade, originalIndex: index }))
+    .sort((a, b) => a.trade.price - b.trade.price);
+  
+  // 尝试所有可能的配对组合
+  for (let i = 0; i < sortedBuys.length; i++) {
+    if (usedBuyIndices.has(sortedBuys[i].originalIndex)) continue;
+    
+    const buyTrade = sortedBuys[i].trade;
+    const buyAmount = buyTrade.price * buyTrade.qty;
+    const buyTax = calculateTax(stockName, 'buy', buyAmount);
+    
+    for (let j = 0; j < sortedSells.length; j++) {
+      if (usedSellIndices.has(sortedSells[j].originalIndex)) continue;
+      
+      const sellTrade = sortedSells[j].trade;
+      const sellAmount = sellTrade.price * sellTrade.qty;
+      const sellTax = calculateTax(stockName, 'sell', sellAmount);
+      const profit = sellAmount - buyAmount - buyTax - sellTax;
+      
+      if (profit > 0) {
+        // 找到有利可图的配对
+        pairedTrades.push({
+          buy: buyTrade,
+          sell: sellTrade,
+          profit: profit
+        });
+        usedBuyIndices.add(sortedBuys[i].originalIndex);
+        usedSellIndices.add(sortedSells[j].originalIndex);
+        break; // 这个买入已经配对，继续下一个买入
+      }
+    }
+  }
+  
+  return { pairedTrades, usedBuyIndices, usedSellIndices };
+}
+
+// 执行配对并保存到数据库
+async function executeAndCachePairing(stockName, latestTrades, otherTrades) {
+  const cacheKey = stockName;
+  
+  // 初始化缓存
+  if (!pairingCache[cacheKey]) {
+    pairingCache[cacheKey] = {};
+  }
+  
+  // 分离最新区块的买入和卖出交易
+  const latestBuyTrades = latestTrades.filter(t => t.side === 'buy');
+  const latestSellTrades = latestTrades.filter(t => t.side === 'sell');
+  
+  // 分离历史区块的买入和卖出交易
+  const historyBuyTrades = otherTrades.filter(t => t.side === 'buy');
+  const historySellTrades = otherTrades.filter(t => t.side === 'sell');
+  
+  // 执行最新区块配对
+  if (pairingState.latestPaired) {
+    const latestPairingResult = findBestPairs(latestBuyTrades, latestSellTrades, stockName);
+    pairingCache[cacheKey].latest = {
+      pairedTrades: latestPairingResult.pairedTrades,
+      pairedBuyIds: latestPairingResult.pairedTrades.map(p => p.buy.id),
+      pairedSellIds: latestPairingResult.pairedTrades.map(p => p.sell.id)
+    };
+  } else {
+    // 如果未配对，保留数据库中已有的配对数据（只有“全部取消配对”会清空 DB）
+    pairingCache[cacheKey].latest = pairingCache[cacheKey].latest || { pairedTrades: [], pairedBuyIds: [], pairedSellIds: [] };
+  }
+  
+  // 执行历史区块配对
+  if (pairingState.historyPaired) {
+    const historyPairingResult = findBestPairs(historyBuyTrades, historySellTrades, stockName);
+    pairingCache[cacheKey].history = {
+      pairedTrades: historyPairingResult.pairedTrades,
+      pairedBuyIds: historyPairingResult.pairedTrades.map(p => p.buy.id),
+      pairedSellIds: historyPairingResult.pairedTrades.map(p => p.sell.id)
+    };
+  } else {
+    // 如果未配对，保留数据库中已有的配对数据（只有“全部取消配对”会清空 DB）
+    pairingCache[cacheKey].history = pairingCache[cacheKey].history || { pairedTrades: [], pairedBuyIds: [], pairedSellIds: [] };
+  }
+  
+  // 执行跨区块配对
+  if (pairingState.crossBlockPaired) {
+    // 收集未配对的交易
+    const latestUnpairedBuys = [];
+    const latestUnpairedSells = [];
+    const historyUnpairedBuys = [];
+    const historyUnpairedSells = [];
+    
+    // 获取最新区块的未配对交易
+    if (pairingCache[cacheKey].latest) {
+      const latestPairedBuyIds = new Set(pairingCache[cacheKey].latest.pairedBuyIds);
+      const latestPairedSellIds = new Set(pairingCache[cacheKey].latest.pairedSellIds);
+      
+      latestBuyTrades.forEach(trade => {
+        if (!latestPairedBuyIds.has(trade.id)) {
+          latestUnpairedBuys.push(trade);
+        }
+      });
+      
+      latestSellTrades.forEach(trade => {
+        if (!latestPairedSellIds.has(trade.id)) {
+          latestUnpairedSells.push(trade);
+        }
+      });
+    } else {
+      latestUnpairedBuys.push(...latestBuyTrades);
+      latestUnpairedSells.push(...latestSellTrades);
+    }
+    
+    // 获取历史区块的未配对交易
+    if (pairingCache[cacheKey].history) {
+      const historyPairedBuyIds = new Set(pairingCache[cacheKey].history.pairedBuyIds);
+      const historyPairedSellIds = new Set(pairingCache[cacheKey].history.pairedSellIds);
+      
+      historyBuyTrades.forEach(trade => {
+        if (!historyPairedBuyIds.has(trade.id)) {
+          historyUnpairedBuys.push(trade);
+        }
+      });
+      
+      historySellTrades.forEach(trade => {
+        if (!historyPairedSellIds.has(trade.id)) {
+          historyUnpairedSells.push(trade);
+        }
+      });
+    } else {
+      historyUnpairedBuys.push(...historyBuyTrades);
+      historyUnpairedSells.push(...historySellTrades);
+    }
+    
+    // 执行跨区块配对
+    const allCrossBlockBuys = [...latestUnpairedBuys, ...historyUnpairedBuys];
+    const allCrossBlockSells = [...latestUnpairedSells, ...historyUnpairedSells];
+    const crossBlockPairingResult = findBestPairs(allCrossBlockBuys, allCrossBlockSells, stockName);
+    
+    pairingCache[cacheKey].crossBlock = {
+      pairedTrades: crossBlockPairingResult.pairedTrades
+    };
+  } else {
+    // 如果未配对，保留数据库中已有的配对数据（只有“全部取消配对”会清空 DB）
+    pairingCache[cacheKey].crossBlock = pairingCache[cacheKey].crossBlock || { pairedTrades: [] };
+  }
+  
+  // 保存配对结果到数据库
+  await tradesDB.savePairing({
+    stockName: stockName,
+    latest: pairingCache[cacheKey].latest,
+    history: pairingCache[cacheKey].history,
+    crossBlock: pairingCache[cacheKey].crossBlock
+  });
+}
+
+// 执行所有股票的配对并保存到数据库
+async function executeAllPairing() {
+  // 按股票分组交易记录
+  const stockTrades = {};
+  
+  filteredTrades.forEach(trade => {
+    const key = `${trade.stock}_${trade.qty}_${trade.market}`;
+    if (!stockTrades[key]) {
+      stockTrades[key] = {
+        stock: trade.stock,
+        qty: trade.qty,
+        market: trade.market,
+        trades: []
+      };
+    }
+    stockTrades[key].trades.push({
+      ...trade,
+      price: Number(trade.price)
+    });
+  });
+  
+  // 遍历所有股票
+  for (const stockInfo of Object.values(stockTrades)) {
+    // 按创建时间排序交易记录（最新的在前，精确到秒）
+    const sortedTrades = [...stockInfo.trades].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    
+    // 不再分离最新区块和历史区块，直接使用所有交易
+    const allTrades = sortedTrades;
+    
+    // 从数据库读取已有的配对结果
+    const existingPairing = await tradesDB.getPairing(stockInfo.stock);
+    
+    // 如果数据库中有配对结果，先加载到内存缓存
+    if (existingPairing) {
+      pairingCache[stockInfo.stock] = {
+        latest: existingPairing.latest || { pairedTrades: [], pairedBuyIds: [], pairedSellIds: [] },
+        history: existingPairing.history || { pairedTrades: [], pairedBuyIds: [], pairedSellIds: [] },
+        crossBlock: existingPairing.crossBlock || { pairedTrades: [] }
+      };
+    }
+    
+    // 执行配对并保存到数据库（传入空数组，因为不再分离区块）
+    await executeAndCachePairing(stockInfo.stock, [], []);
+  }
+}
+
+// 渲染配对气泡模式
+function renderSeparatedBubbleView() {
+  // 按股票分组交易记录
+  const stockTrades = {};
+  
+  filteredTrades.forEach(trade => {
+    const key = `${trade.stock}_${trade.qty}_${trade.market}`;
+    if (!stockTrades[key]) {
+      stockTrades[key] = {
+        stock: trade.stock,
+        qty: trade.qty,
+        market: trade.market,
+        trades: []
+      };
+    }
+    stockTrades[key].trades.push({
+      ...trade, // 保存完整的交易对象
+      price: Number(trade.price)
+    });
+  });
+  
+  // 遍历所有股票
+  Object.values(stockTrades).forEach(stockInfo => {
+    // 获取股票信息，使用type字段
+    const stockData = STOCKS.find(s => s.name === stockInfo.stock);
+    const type = stockData ? stockData.type : (stockInfo.market === '台股' ? 'tA' : 'cETF');
+    
+    // 获取今天的日期
+    const today = new Date().toISOString().slice(0, 10);
+    
+    // 按创建时间排序交易记录（最新的在前，精确到秒）
+    const sortedTrades = [...stockInfo.trades].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    
+    // 不再分离最新区块和历史区块，直接使用所有交易
+    const allTrades = sortedTrades;
+    
+    // 分离买入和卖出交易
+    const allBuyTrades = allTrades.filter(t => t.side === 'buy');
+    const allSellTrades = allTrades.filter(t => t.side === 'sell');
+    
+    // ========================== 第一步：收集所有未配对交易 ==========================
+    const allUnpairedBuys = [];
+    const allUnpairedSells = [];
+    
+    // 检查缓存中是否有配对结果
+    const cacheKey = stockInfo.stock;
+    const cachedPairing = pairingCache[cacheKey];
+    
+    // 合并 latest 和 history 的配对结果
+    const allPairedBuyIds = new Set();
+    const allPairedSellIds = new Set();
+    
+    if (cachedPairing && cachedPairing.latest) {
+      cachedPairing.latest.pairedBuyIds.forEach(id => allPairedBuyIds.add(id));
+      cachedPairing.latest.pairedSellIds.forEach(id => allPairedSellIds.add(id));
+    }
+    
+    if (cachedPairing && cachedPairing.history) {
+      cachedPairing.history.pairedBuyIds.forEach(id => allPairedBuyIds.add(id));
+      cachedPairing.history.pairedSellIds.forEach(id => allPairedSellIds.add(id));
+    }
+    
+    // 收集未配对的买入和卖出交易
+    allBuyTrades.forEach(trade => {
+      if (!allPairedBuyIds.has(trade.id)) {
+        trade.isCrossBlockPaired = false;
+        allUnpairedBuys.push(trade);
+      }
+    });
+    
+    allSellTrades.forEach(trade => {
+      if (!allPairedSellIds.has(trade.id)) {
+        trade.isCrossBlockPaired = false;
+        allUnpairedSells.push(trade);
+      }
+    });
+    
+    // ========================== 第二步：执行跨区块配对 ==========================
+    const crossBlockPairedTrades = [];
+    
+    // 优先使用数据库缓存的跨区块配对结果
+    if (cachedPairing && cachedPairing.crossBlock && Array.isArray(cachedPairing.crossBlock.pairedTrades) && cachedPairing.crossBlock.pairedTrades.length > 0) {
+      cachedPairing.crossBlock.pairedTrades.forEach(pair => {
+        pair.buy.isCrossBlockPaired = true;
+        pair.sell.isCrossBlockPaired = true;
+        crossBlockPairedTrades.push(pair);
+      });
+    }
+    
+    // ========================== 第三步：渲染区块 ==========================
+    // 创建配对模式的气泡元素
+    const bubbleDiv = document.createElement('div');
+    bubbleDiv.className = 'stock-bubble-separated';
+    
+    // 获取当前股票的配对气泡屏蔽状态
+    const isPairBubbleHidden = pairBubbleHiddenState[stockInfo.stock] || false;
+    
+    // 获取当前股票的折叠状态
+    const isCollapsed = stockCollapsedState[stockInfo.stock] || false;
+    
+    // 创建气泡头部（股票名称）
+    const headerDiv = document.createElement('div');
+    headerDiv.className = 'bubble-header';
+    
+    // 创建折叠/展开按钮
+    const collapseBtn = document.createElement('button');
+    collapseBtn.className = 'collapse-btn';
+    collapseBtn.textContent = isCollapsed ? '▶' : '▼';
+    collapseBtn.dataset.stockName = stockInfo.stock;
+    collapseBtn.dataset.collapsed = isCollapsed;
+    
+    // 添加点击事件
+    collapseBtn.addEventListener('click', () => {
+      const currentCollapsed = collapseBtn.dataset.collapsed === 'true';
+      const newCollapsed = !currentCollapsed;
+      stockCollapsedState[stockInfo.stock] = newCollapsed;
+      collapseBtn.dataset.collapsed = newCollapsed;
+      collapseBtn.textContent = newCollapsed ? '▶' : '▼';
+      // 重新渲染气泡视图
+      renderBubbleView();
+    });
+    
+    headerDiv.appendChild(collapseBtn);
+    
+    // 股票名称文本
+    const stockNameSpan = document.createElement('span');
+    stockNameSpan.className = 'stock-name';
+    stockNameSpan.textContent = `${stockInfo.stock}(${stockInfo.qty}, ${type})`;
+    headerDiv.appendChild(stockNameSpan);
+    
+    // 创建屏蔽配对气泡切换按钮
+    const togglePairBtn = createTogglePairButton(stockInfo.stock, isPairBubbleHidden);
+    headerDiv.appendChild(togglePairBtn);
+    bubbleDiv.appendChild(headerDiv);
+    
+    // 创建内容容器（用于折叠）
+    const contentDiv = document.createElement('div');
+    contentDiv.className = 'bubble-content';
+    contentDiv.style.display = isCollapsed ? 'none' : 'block';
+    
+    // 创建统一的交易部分
+    if (allTrades.length > 0) {
+      const unifiedSection = document.createElement('div');
+      unifiedSection.className = 'bubble-section';
+      
+      // 合并 latest 和 history 的配对结果
+      const allPairedTrades = [];
+      if (cachedPairing && cachedPairing.latest && Array.isArray(cachedPairing.latest.pairedTrades)) {
+        allPairedTrades.push(...cachedPairing.latest.pairedTrades);
+      }
+      if (cachedPairing && cachedPairing.history && Array.isArray(cachedPairing.history.pairedTrades)) {
+        allPairedTrades.push(...cachedPairing.history.pairedTrades);
+      }
+      
+      // 创建统一的交易项列表（配对交易和未配对交易混在一起）
+      const allItems = [];
+      
+      // 添加配对交易项
+      allPairedTrades.forEach(pair => {
+        // 检查交易是否仍然存在
+        const buyExists = allBuyTrades.some(t => t.id === pair.buy.id);
+        const sellExists = allSellTrades.some(t => t.id === pair.sell.id);
+        if (!buyExists || !sellExists) return;
+        
+        // 使用买入或卖出中较新的时间作为排序依据
+        const buyCreatedAt = new Date(pair.buy.createdAt);
+        const sellCreatedAt = new Date(pair.sell.createdAt);
+        const latestCreatedAt = buyCreatedAt > sellCreatedAt ? buyCreatedAt : sellCreatedAt;
+        
+        allItems.push({
+          type: 'paired',
+          buy: pair.buy,
+          sell: pair.sell,
+          createdAt: latestCreatedAt,
+          repTrade: buyCreatedAt > sellCreatedAt ? pair.buy : pair.sell
+        });
+      });
+      
+      // 添加未配对的买入交易项
+      allBuyTrades.forEach(trade => {
+        if (allPairedBuyIds.has(trade.id)) return;
+        
+        allItems.push({
+          type: 'unpaired-buy',
+          trade: trade,
+          createdAt: new Date(trade.createdAt),
+          repTrade: trade
+        });
+      });
+      
+      // 添加未配对的卖出交易项
+      allSellTrades.forEach(trade => {
+        if (allPairedSellIds.has(trade.id)) return;
+        
+        allItems.push({
+          type: 'unpaired-sell',
+          trade: trade,
+          createdAt: new Date(trade.createdAt),
+          repTrade: trade
+        });
+      });
+      
+      // 按创建时间排序（从新到旧）
+      allItems.sort((a, b) => b.createdAt - a.createdAt);
+      
+      // 渲染所有交易项
+      allItems.forEach(item => {
+        if (item.type === 'paired') {
+          // 如果屏蔽配对气泡，则跳过渲染配对气泡
+          if (isPairBubbleHidden) return;
+          
+          const pairBubble = document.createElement('div');
+          pairBubble.className = 'trade-pair';
+          
+          // 添加点击事件显示配对利润核算
+          pairBubble.addEventListener('click', () => {
+            showPairDetail(item, stockInfo.stock);
+          });
+          
+          const buyBubble = document.createElement('span');
+          buyBubble.className = 'price-bubble buy';
+          buyBubble.textContent = `${item.buy.price}`;
+          
+          // 检查是否是跨区块配对的交易，如果是则添加红色圆点
+          if (item.buy.isCrossBlockPaired) {
+            buyBubble.classList.add('cross-block-pair');
+          }
+          
+          // 添加双击事件
+          buyBubble.addEventListener('dblclick', () => {
+            showTradeDetail(item.buy);
+          });
+          
+          pairBubble.appendChild(buyBubble);
+          
+          const sellBubble = document.createElement('span');
+          sellBubble.className = 'price-bubble sell';
+          sellBubble.textContent = `-${item.sell.price}`;
+          sellBubble.dataset.tradeId = item.sell.id;
+          sellBubble.dataset.price = item.sell.price;
+          sellBubble.dataset.side = item.sell.side;
+          sellBubble.dataset.stock = item.sell.stock;
+          sellBubble.dataset.date = item.sell.date;
+          sellBubble.dataset.remark = item.sell.remark || '';
+          
+          // 检查是否是跨区块配对的交易，如果是则添加红色圆点
+          if (item.sell.isCrossBlockPaired) {
+            sellBubble.classList.add('cross-block-pair');
+          }
+          
+          // 添加双击事件
+          sellBubble.addEventListener('dblclick', () => {
+            showTradeDetail(item.sell);
+          });
+          
+          pairBubble.appendChild(sellBubble);
+          
+          unifiedSection.appendChild(pairBubble);
+        } else if (item.type === 'unpaired-buy') {
+          const priceBubble = document.createElement('span');
+          priceBubble.className = 'price-bubble buy';
+          priceBubble.textContent = `${item.trade.price}`;
+          priceBubble.dataset.tradeId = item.trade.id;
+          priceBubble.dataset.price = item.trade.price;
+          priceBubble.dataset.side = item.trade.side;
+          priceBubble.dataset.stock = item.trade.stock;
+          priceBubble.dataset.date = item.trade.date;
+          priceBubble.dataset.remark = item.trade.remark || '';
+          
+          // 检查是否是跨区块配对的交易，如果是则添加红色圆点
+          if (item.trade.isCrossBlockPaired) {
+            priceBubble.classList.add('cross-block-pair');
+          }
+          
+          // 添加双击事件
+          priceBubble.addEventListener('dblclick', () => {
+            showTradeDetail(item.trade);
+          });
+          
+          unifiedSection.appendChild(priceBubble);
+        } else if (item.type === 'unpaired-sell') {
+          const priceBubble = document.createElement('span');
+          priceBubble.className = 'price-bubble sell';
+          priceBubble.textContent = `-${item.trade.price}`;
+          priceBubble.dataset.tradeId = item.trade.id;
+          priceBubble.dataset.price = item.trade.price;
+          priceBubble.dataset.side = item.trade.side;
+          priceBubble.dataset.stock = item.trade.stock;
+          priceBubble.dataset.date = item.trade.date;
+          priceBubble.dataset.remark = item.trade.remark || '';
+          
+          // 检查是否是跨区块配对的交易，如果是则添加红色圆点
+          if (item.trade.isCrossBlockPaired) {
+            priceBubble.classList.add('cross-block-pair');
+          }
+          
+          // 添加双击事件
+          priceBubble.addEventListener('dblclick', () => {
+            showTradeDetail(item.trade);
+          });
+          
+          unifiedSection.appendChild(priceBubble);
+        }
+      });
+      
+      contentDiv.appendChild(unifiedSection);
+    }
+    
+    // 如果没有交易记录，只显示股票名称
+    if (allTrades.length === 0) {
+      contentDiv.appendChild(document.createTextNode('暂无交易记录'));
+    }
+    
+    // 将内容容器添加到气泡中
+    bubbleDiv.appendChild(contentDiv);
+    
+    // 根据市场类型添加到对应容器
+    if (stockInfo.market === '台股') {
+      if (taiwanStockBubbles) {
+        taiwanStockBubbles.appendChild(bubbleDiv);
+      }
+    } else {
+      if (chinaStockBubbles) {
+        chinaStockBubbles.appendChild(bubbleDiv);
+      }
+    }
+  });
+}
+
+// 创建屏蔽配对气泡切换按钮（公共函数，提高代码重用）
+function createTogglePairButton(stockName, isHidden) {
+  const togglePairBtn = document.createElement('button');
+  togglePairBtn.className = 'toggle-pair-btn';
+  togglePairBtn.textContent = isHidden ? '展开配对' : '屏蔽配对';
+  togglePairBtn.dataset.stockName = stockName;
+  togglePairBtn.dataset.hidden = isHidden;
+  
+  // 添加点击事件
+  togglePairBtn.addEventListener('click', () => {
+    const currentHidden = togglePairBtn.dataset.hidden === 'true';
+    const newHidden = !currentHidden;
+    pairBubbleHiddenState[stockName] = newHidden;
+    togglePairBtn.dataset.hidden = newHidden;
+    togglePairBtn.textContent = newHidden ? '展开配对' : '屏蔽配对';
+    // 个股设定不影响全部按钮状态，直接重新渲染
+    renderBubbleView();
+  });
+  
+  // 创建新增交易按钮
+  const addTradeBtn = document.createElement('button');
+  addTradeBtn.className = 'add-trade-btn';
+  addTradeBtn.textContent = '新增交易';
+  addTradeBtn.dataset.stockName = stockName;
+  
+  // 添加点击事件
+  addTradeBtn.addEventListener('click', () => {
+    openAddTradeModal(stockName);
+  });
+  
+  // 创建按钮容器
+  const buttonContainer = document.createElement('div');
+  buttonContainer.className = 'button-container';
+  buttonContainer.appendChild(togglePairBtn);
+  buttonContainer.appendChild(addTradeBtn);
+
+  // 创建手动配对按钮，放在新增交易旁
+  const manualPairLocalBtn = document.createElement('button');
+  manualPairLocalBtn.className = 'manual-pair-btn';
+  manualPairLocalBtn.textContent = '手动配对';
+  manualPairLocalBtn.dataset.stockName = stockName;
+  manualPairLocalBtn.addEventListener('click', () => {
+    showDragPairZone();
+  });
+  buttonContainer.appendChild(manualPairLocalBtn);
+  
+  return buttonContainer;
+}
+
+// ---------------- 手动配对模态逻辑 ----------------
+function initManualPairModal() {
+  const modal = document.getElementById('manualPairModal');
+  const closeBtn = document.getElementById('closeManualPairModalBtn');
+  const confirmBtn = document.getElementById('manualPairConfirmBtn');
+  const unpairBtn = document.getElementById('manualUnpairSelectedBtn');
+  const stockInputEl = document.getElementById('manualPairStock');
+
+  if (closeBtn) closeBtn.addEventListener('click', () => { modal.style.display = 'none'; });
+  if (modal) modal.addEventListener('click', (e) => { if (e.target === modal) modal.style.display = 'none'; });
+
+  if (stockInputEl) {
+    stockInputEl.addEventListener('change', () => renderManualLists(stockInputEl.value.trim()));
+  }
+
+  if (confirmBtn) confirmBtn.addEventListener('click', async () => {
+    await manualPairConfirm();
+  });
+
+  if (unpairBtn) unpairBtn.addEventListener('click', async () => {
+    await manualUnpairSelected();
+  });
+}
+
+function openManualPairModal(stockName) {
+  const modal = document.getElementById('manualPairModal');
+  const stockInputEl = document.getElementById('manualPairStock');
+  if (!modal || !stockInputEl) return;
+  stockInputEl.value = stockName || '';
+  if (stockName) renderManualLists(stockName);
+  modal.style.display = 'block';
+}
+
+function renderManualLists(stockName) {
+  const buysEl = document.getElementById('manualUnpairedBuys');
+  const sellsEl = document.getElementById('manualUnpairedSells');
+  const pairedEl = document.getElementById('manualPairedList');
+  if (!buysEl || !sellsEl || !pairedEl) return;
+
+  buysEl.innerHTML = '';
+  sellsEl.innerHTML = '';
+  pairedEl.innerHTML = '';
+
+  // collect trades for this stock
+  const stockTrades = trades.filter(t => t.stock === stockName);
+  if (stockTrades.length === 0) return;
+
+  // 按创建时间排序交易记录（最新的在前）
+  const sortedTrades = [...stockTrades].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+  // load existing pairing for this stock
+  const cachedPairing = pairingCache[stockName] || {};
+
+  // 合并 latest 和 history 的配对结果
+  const allPairedBuyIds = new Set();
+  const allPairedSellIds = new Set();
+  
+  if (cachedPairing && cachedPairing.latest) {
+    cachedPairing.latest.pairedBuyIds.forEach(id => allPairedBuyIds.add(id));
+    cachedPairing.latest.pairedSellIds.forEach(id => allPairedSellIds.add(id));
+  }
+  
+  if (cachedPairing && cachedPairing.history) {
+    cachedPairing.history.pairedBuyIds.forEach(id => allPairedBuyIds.add(id));
+    cachedPairing.history.pairedSellIds.forEach(id => allPairedSellIds.add(id));
+  }
+
+  // render unpaired buys (按时间排序)
+  sortedTrades.filter(t => t.side === 'buy' && !allPairedBuyIds.has(t.id)).forEach(t => {
+    const el = document.createElement('div'); el.className = 'list-item buy'; el.textContent = `${t.createdAt.split('T')[1].slice(0,8)} ${t.price}`;
+    el.dataset.id = t.id; el.dataset.side='buy'; el.dataset.stock=t.stock;
+    el.addEventListener('click', () => toggleManualSelect(el));
+    buysEl.appendChild(el);
+  });
+
+  // render unpaired sells (按时间排序)
+  sortedTrades.filter(t => t.side === 'sell' && !allPairedSellIds.has(t.id)).forEach(t => {
+    const el = document.createElement('div'); el.className = 'list-item sell'; el.textContent = `${t.createdAt.split('T')[1].slice(0,8)} -${t.price}`;
+    el.dataset.id = t.id; el.dataset.side='sell'; el.dataset.stock=t.stock;
+    el.addEventListener('click', () => toggleManualSelect(el));
+    sellsEl.appendChild(el);
+  });
+
+  // render existing paired records (merge latest/history/crossBlock)
+  const pairedRecords = [];
+  if (cachedPairing.latest && Array.isArray(cachedPairing.latest.pairedTrades)) pairedRecords.push(...cachedPairing.latest.pairedTrades);
+  if (cachedPairing.history && Array.isArray(cachedPairing.history.pairedTrades)) pairedRecords.push(...cachedPairing.history.pairedTrades);
+  if (cachedPairing.crossBlock && Array.isArray(cachedPairing.crossBlock.pairedTrades)) pairedRecords.push(...cachedPairing.crossBlock.pairedTrades);
+
+  // 按时间排序配对记录
+  pairedRecords.sort((a, b) => {
+    const aTime = Math.max(new Date(a.buy.createdAt), new Date(a.sell.createdAt));
+    const bTime = Math.max(new Date(b.buy.createdAt), new Date(b.sell.createdAt));
+    return bTime - aTime;
+  });
+
+  pairedRecords.forEach((pair, idx) => {
+    const wrap = document.createElement('div'); wrap.className='list-item';
+    wrap.dataset.pairIndex = idx;
+    wrap.innerHTML = `<strong>${pair.buy.price}</strong> / <strong>-${pair.sell.price}</strong>`;
+    wrap.addEventListener('click', () => {
+      // mark for unpairing
+      document.querySelectorAll('#manualPairedList .list-item').forEach(n=>n.classList.remove('selected'));
+      wrap.classList.add('selected');
+    });
+    pairedEl.appendChild(wrap);
+  });
+}
+
+function toggleManualSelect(el) {
+  // allow selecting one buy and one sell
+  const list = el.parentElement;
+  if (!list) return;
+  // toggle selected
+  el.classList.toggle('selected');
+  // keep at most one selected per side
+  const side = el.dataset.side;
+  const container = el.parentElement;
+  if (side === 'buy') {
+    Array.from(container.querySelectorAll('.list-item.buy')).forEach(i=>{ if(i!==el) i.classList.remove('selected'); });
+  } else if (side === 'sell') {
+    Array.from(container.querySelectorAll('.list-item.sell')).forEach(i=>{ if(i!==el) i.classList.remove('selected'); });
+  }
+}
+
+async function manualPairConfirm() {
+  const stock = (document.getElementById('manualPairStock').value || '').trim();
+  if (!stock) { alert('请选择股票'); return; }
+  const buyEl = document.querySelector('#manualUnpairedBuys .list-item.selected');
+  const sellEl = document.querySelector('#manualUnpairedSells .list-item.selected');
+  if (!buyEl || !sellEl) { alert('请分别选择一笔买入与一笔卖出交易'); return; }
+  const buyId = buyEl.dataset.id; const sellId = sellEl.dataset.id;
+
+  const buyTrade = trades.find(t=>t.id===buyId);
+  const sellTrade = trades.find(t=>t.id===sellId);
+  if (!buyTrade || !sellTrade) { alert('未找到选定交易'); return; }
+
+  // profit check
+  const qty = buyTrade.qty;
+  const buyAmount = buyTrade.price * qty;
+  const sellAmount = sellTrade.price * qty;
+  const buyTax = calculateTax(stock, 'buy', buyAmount);
+  const sellTax = calculateTax(stock, 'sell', sellAmount);
+  const profit = sellAmount - buyAmount - buyTax - sellTax;
+  if (!(profit > 0)) { if (!confirm('配对将产生非正利润，是否仍然强制配对？')) return; }
+
+  // load existing pairing from DB
+  const existing = await tradesDB.getPairing(stock);
+  const newPair = { buy: buyTrade, sell: sellTrade, profit };
+
+  const today = new Date().toISOString().slice(0,10);
+  // determine nearestDate same as executeAllPairing
+  const stockTrades = trades.filter(t=>t.stock===stock);
+  let nearestDate=null, minDaysDiff=Infinity;
+  stockTrades.forEach(tr=>{ const d=Math.abs((new Date(tr.date)-new Date(today))/(1000*60*60*24)); if(d<minDaysDiff){minDaysDiff=d;nearestDate=tr.date;} });
+
+  const inLatest = (buyTrade.date===nearestDate) && (sellTrade.date===nearestDate);
+  const inHistory = (buyTrade.date!==nearestDate) && (sellTrade.date!==nearestDate);
+
+  const updated = existing ? JSON.parse(JSON.stringify(existing)) : { stockName: stock, latest:{pairedTrades:[],pairedBuyIds:[],pairedSellIds:[]}, history:{pairedTrades:[],pairedBuyIds:[],pairedSellIds:[]}, crossBlock:{pairedTrades:[]} };
+
+  if (inLatest) {
+    updated.latest.pairedTrades = updated.latest.pairedTrades || [];
+    updated.latest.pairedTrades.push(newPair);
+    updated.latest.pairedBuyIds = updated.latest.pairedBuyIds || [];
+    updated.latest.pairedSellIds = updated.latest.pairedSellIds || [];
+    updated.latest.pairedBuyIds.push(buyTrade.id);
+    updated.latest.pairedSellIds.push(sellTrade.id);
+  } else if (inHistory) {
+    updated.history.pairedTrades = updated.history.pairedTrades || [];
+    updated.history.pairedTrades.push(newPair);
+    updated.history.pairedBuyIds = updated.history.pairedBuyIds || [];
+    updated.history.pairedSellIds = updated.history.pairedSellIds || [];
+    updated.history.pairedBuyIds.push(buyTrade.id);
+    updated.history.pairedSellIds.push(sellTrade.id);
+  } else {
+    updated.crossBlock.pairedTrades = updated.crossBlock.pairedTrades || [];
+    updated.crossBlock.pairedTrades.push(newPair);
+  }
+
+  // save to DB and update cache
+  await tradesDB.savePairing(updated);
+  pairingCache[stock] = {
+    latest: updated.latest || {pairedTrades:[],pairedBuyIds:[],pairedSellIds:[]},
+    history: updated.history || {pairedTrades:[],pairedBuyIds:[],pairedSellIds:[]},
+    crossBlock: updated.crossBlock || {pairedTrades:[]}
+  };
+
+  // refresh trades and UI for this stock
+  await loadTrades(); applyFilters(); renderBubbleView();
+  // close modal
+  const modal = document.getElementById('manualPairModal'); if (modal) modal.style.display='none';
+}
+
+async function manualUnpairSelected() {
+  const stock = (document.getElementById('manualPairStock').value || '').trim();
+  if (!stock) { alert('请选择股票'); return; }
+  const pairedEl = document.querySelector('#manualPairedList .list-item.selected');
+  if (!pairedEl) { alert('请选择要解除的配对记录'); return; }
+  const index = Number(pairedEl.dataset.pairIndex || 0);
+  const existing = await tradesDB.getPairing(stock);
+  if (!existing) { alert('没有配对记录'); return; }
+
+  // find all pairs combined
+  const combined = [];
+  if (existing.latest && Array.isArray(existing.latest.pairedTrades)) combined.push(...existing.latest.pairedTrades);
+  if (existing.history && Array.isArray(existing.history.pairedTrades)) combined.push(...existing.history.pairedTrades);
+  if (existing.crossBlock && Array.isArray(existing.crossBlock.pairedTrades)) combined.push(...existing.crossBlock.pairedTrades);
+  const pair = combined[index];
+  if (!pair) { alert('未找到选定配对'); return; }
+
+  // remove from all sections if present
+  ['latest','history','crossBlock'].forEach(section => {
+    if (existing[section] && Array.isArray(existing[section].pairedTrades)) {
+      existing[section].pairedTrades = existing[section].pairedTrades.filter(p=> !(p.buy.id===pair.buy.id && p.sell.id===pair.sell.id));
+      if (existing[section].pairedBuyIds) existing[section].pairedBuyIds = existing[section].pairedBuyIds.filter(id=> id!==pair.buy.id);
+      if (existing[section].pairedSellIds) existing[section].pairedSellIds = existing[section].pairedSellIds.filter(id=> id!==pair.sell.id);
+    }
+  });
+
+  // save
+  await tradesDB.savePairing(existing);
+  pairingCache[stock] = {
+    latest: existing.latest || {pairedTrades:[],pairedBuyIds:[],pairedSellIds:[]},
+    history: existing.history || {pairedTrades:[],pairedBuyIds:[],pairedSellIds:[]},
+    crossBlock: existing.crossBlock || {pairedTrades:[]}
+  };
+  await loadTrades(); applyFilters(); renderBubbleView();
+  const modal = document.getElementById('manualPairModal'); if (modal) modal.style.display='none';
+}
+
+// 更新单个股票的按钮状态（公共函数，提高代码重用）
+function updateToggleButtonState(button, isHidden) {
+  button.dataset.hidden = isHidden;
+  button.textContent = isHidden ? '展开配对' : '屏蔽配对';
+}
+
+// 渲染文本视图
+function renderTextView() {
+  if (!textOutput) return;
+  
+  // 按股票和方向分组交易记录
+  const stockTrades = {};
+  
+  filteredTrades.forEach(trade => {
+    const key = `${trade.stock}_${trade.market}`;
+    if (!stockTrades[key]) {
+      stockTrades[key] = {
+        stock: trade.stock,
+        market: trade.market,
+        trades: []
+      };
+    }
+    stockTrades[key].trades.push({
+      price: Number(trade.price),
+      side: trade.side
+    });
+  });
+  
+  // 生成文本输出
+  let output = "税费参数：\n";
+  output += "tETF(14.16,23.14,9.91) tA(14.16,46.25,9.91) cETF(1.05,1.05,0) cA(1.05,9,0) cG(0,0,0)\n\n";
+  output += `#${new Date().toISOString().slice(0,10).replace(/-/g, '/')}#\n\n`;
+  
+  // 台股部分
+  output += "台股部分：\n";
+  
+  // 遍历所有台股
+  Object.values(stockTrades)
+    .filter(stockInfo => stockInfo.market === '台股')
+    .forEach(stockInfo => {
+      // 获取股票信息
+      const stockData = STOCKS.find(s => s.name === stockInfo.stock);
+      if (!stockData) return;
+      
+      // 生成股票行，使用股票的type字段
+      let line = `${stockInfo.stock}(${stockData.qty},${stockData.type})`;
+      
+      // 添加交易价格
+      stockInfo.trades.forEach(trade => {
+        if (trade.side === 'sell') {
+          // 卖出：显示负号
+          line += ` -${trade.price}`;
+        } else {
+          // 买入：显示正数
+          line += ` ${trade.price}`;
+        }
+      });
+      
+      output += line + "\n";
+    });
+  
+  output += "\n";
+  
+  // 陆股部分
+  output += "陆股部分：\n";
+  
+  // 遍历所有陆股
+  Object.values(stockTrades)
+    .filter(stockInfo => stockInfo.market === '陆股')
+    .forEach(stockInfo => {
+      // 获取股票信息
+      const stockData = STOCKS.find(s => s.name === stockInfo.stock);
+      if (!stockData) return;
+      
+      // 生成股票行，使用股票的type字段
+      let line = `${stockInfo.stock}(${stockData.qty},${stockData.type})`;
+      
+      // 添加交易价格
+      stockInfo.trades.forEach(trade => {
+        if (trade.side === 'sell') {
+          // 卖出：显示负号
+          line += ` -${trade.price}`;
+        } else {
+          // 买入：显示正数
+          line += ` ${trade.price}`;
+        }
+      });
+      
+      output += line + "\n";
+    });
+  
+  // 设置文本输出
+  textOutput.textContent = output;
+}
+
+
+
+
+
+// 初始化函数
+async function init() {
+  try {
+    // 获取UI元素
+    stockInput = document.getElementById('stockInput');
+    stockListEl = document.getElementById('stockList');
+    sideSelect = document.getElementById('sideSelect');
+    priceInput = document.getElementById('priceInput');
+    remarkInput = document.getElementById('remarkInput');
+    addBtn = document.getElementById('addTxBtn');
+    
+    // 获取输入模式相关元素
+    singleInputMode = document.getElementById('singleInputMode');
+    batchInputMode = document.getElementById('batchInputMode');
+    multiStockInputMode = document.getElementById('multiStockInputMode');
+    batchStockInput = document.getElementById('batchStockInput');
+    batchStockListEl = document.getElementById('batchStockList');
+    batchInput = document.getElementById('batchInput');
+    addBatchBtn = document.getElementById('addBatchTxBtn');
+    multiStockInput = document.getElementById('multiStockInput');
+    addMultiStockBtn = document.getElementById('addMultiStockTxBtn');
+    
+    tableBody = document.querySelector('tbody');
+    summaryEl = document.querySelector('.summary');
+    
+    // 打开数据库
+    await tradesDB.open();
+    
+    // 从 localStorage 迁移数据
+    await tradesDB.migrateFromLocalStorage();
+    
+    // 加载交易记录
+    await loadTrades();
+    
+    // 初始化 UI
+    populateDatalist();
+    renderTrades();
+    
+    // 初始化筛选功能
+    initFilters();
+
+    // 初始化手动配对模态（按钮在每个股票的按钮组中创建）
+    initManualPairModal();
+    // 初始化配对记录查看器
+    initPairingsViewer();
+    
+    // 添加事件监听器 - 单笔输入
+    addBtn.addEventListener('click', async () => {
+      const stockName = (stockInput.value || '').trim();
+      if (!stockName) { alert('请选择或输入股票'); return; }
+      const stockInfo = findStockByName(stockName);
+      if (!stockInfo) { alert('未在清单找到该股票，请从下拉选择可用股票。'); return; }
+      const side = sideSelect.value === 'sell' ? 'sell' : 'buy';
+      const price = Number(priceInput.value) || 0;
+      if (price <= 0) { alert('请输入有效单价'); return; }
+      
+      // 获取备注信息
+      const remark = (remarkInput.value || '').trim();
+
+      const qty = stockInfo.qty;
+      const amount = qty * price;
+      const now = new Date();
+      const t = {
+        id: generateId(),
+        date: now.toISOString().slice(0,10),
+        createdAt: now.toISOString(), // 记录具体时间（ISO格式）
+        market: stockInfo.market,
+        stock: stockInfo.name,
+        side,
+        qty,
+        price,
+        amount,
+        remark
+      };
+      
+      try {
+        await tradesDB.save(t);
+        // 保持已有配对结果：新增交易不应自动删除数据库中的配对资料
+        
+        await loadTrades();
+        applyFilters();
+        // reset inputs
+        stockInput.value = '';
+        priceInput.value = '';
+        remarkInput.value = '';
+      } catch (error) {
+        console.error('保存交易记录失败:', error);
+        alert('保存交易记录失败: ' + error.message);
+      }
+    });
+    
+    // 添加事件监听器 - 多笔输入
+    addBatchBtn.addEventListener('click', async () => {
+      const stockName = (batchStockInput.value || '').trim();
+      if (!stockName) { alert('请选择或输入股票'); return; }
+      
+      const stockInfo = findStockByName(stockName);
+      if (!stockInfo) { alert('未在清单找到该股票，请从下拉选择可用股票。'); return; }
+      
+      const inputText = batchInput.value.trim();
+      if (!inputText) { alert('请输入多笔交易内容'); return; }
+      
+      // 解析多笔交易
+      const parsedTrades = parseBatchInput(inputText);
+      if (parsedTrades.length === 0) { alert('没有解析到有效的交易记录'); return; }
+      
+      const qty = stockInfo.qty;
+      const date = new Date().toISOString().slice(0,10);
+      
+      try {
+        // 批量保存交易
+        for (const parsedTrade of parsedTrades) {
+          const now = new Date();
+          const amount = qty * parsedTrade.price;
+          const trade = {
+            id: generateId(),
+            date,
+            createdAt: now.toISOString(),
+            market: stockInfo.market,
+            stock: stockInfo.name,
+            side: parsedTrade.side,
+            qty,
+            price: parsedTrade.price,
+            amount,
+            remark: parsedTrade.remark
+          };
+          await tradesDB.save(trade);
+        }
+        
+        // 保持已有配对结果：批量新增交易不应自动删除数据库中的配对资料
+        
+        // 更新数据和UI
+        await loadTrades();
+        applyFilters();
+        
+        // 清空输入
+        batchInput.value = '';
+        // 聚焦到股票输入框
+        batchStockInput.focus();
+        
+        alert(`成功添加 ${parsedTrades.length} 笔交易`);
+      } catch (err) {
+        alert('保存失败: ' + err.message);
+      }
+    });
+    
+    // 添加模式切换事件监听器 - 按钮版本
+    document.querySelectorAll('.mode-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const mode = btn.getAttribute('data-mode');
+        switchInputMode(mode);
+        
+        // 更新按钮激活状态
+        document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+      });
+    });
+    
+    // 添加事件监听器 - 多笔多股输入
+    addMultiStockBtn.addEventListener('click', async () => {
+      const inputText = multiStockInput.value.trim();
+      if (!inputText) { alert('请输入交易内容'); return; }
+      
+      // 解析多笔多股交易
+      const parsedTrades = parseMultiStockInput(inputText);
+      if (parsedTrades.length === 0) { alert('没有解析到有效的交易记录'); return; }
+      
+      const date = new Date().toISOString().slice(0,10);
+      
+      try {
+        // 批量保存交易
+        const affectedStocks = new Set();
+        for (const parsedTrade of parsedTrades) {
+          const now = new Date();
+          const stockInfo = parsedTrade.stockInfo;
+          const amount = stockInfo.qty * parsedTrade.price;
+          const trade = {
+            id: generateId(),
+            date,
+            createdAt: now.toISOString(),
+            market: stockInfo.market,
+            stock: stockInfo.name,
+            side: parsedTrade.side,
+            qty: stockInfo.qty,
+            price: parsedTrade.price,
+            amount,
+            remark: parsedTrade.remark
+          };
+          await tradesDB.save(trade);
+          // 记录受影响的股票
+          affectedStocks.add(stockInfo.name);
+        }
+        
+        // 保持已有配对结果：多股票新增不应自动删除数据库中的配对资料
+        // 如果需要强制使配对重新计算，可以提供显式按钮触发重新配对。
+        
+        // 更新数据和UI
+        await loadTrades();
+        applyFilters();
+        
+        // 清空输入
+        multiStockInput.value = '';
+        
+        alert(`成功添加 ${parsedTrades.length} 笔交易`);
+      } catch (err) {
+        alert('保存失败: ' + err.message);
+      }
+    });
+    
+  } catch (error) {
+    console.error('pureClientA 初始化失败:', error);
+    alert('应用初始化失败: ' + error.message);
+  }
+}
+
+// 多笔交易解析函数
+function parseBatchInput(input) {
+  // 移除所有多余空格，保留一个空格作为分隔符
+  const normalizedInput = input.replace(/\s+/g, ' ').trim();
+  
+  // 使用正则表达式匹配每笔交易
+  // 匹配模式：[+-]?\d+(\.\d+)?\s*[\(（]?([^\)）]+)?[\)）]?
+  const tradeRegex = /([+-]?\d+(?:\.\d+)?)(?:\s*[\(（]([^\)）]+)[\)）])?/g;
+  
+  const trades = [];
+  let match;
+  
+  while ((match = tradeRegex.exec(normalizedInput)) !== null) {
+    const fullMatch = match[0];
+    const priceStr = match[1];
+    let remark = match[2] || '';
+    
+    // 清理备注
+    remark = remark.trim();
+    
+    // 确定交易方向
+    const isSell = priceStr.startsWith('-');
+    // 提取纯价格数字
+    const price = parseFloat(priceStr.replace(/^[+-]/, ''));
+    
+    // 验证价格有效性
+    if (isNaN(price) || price <= 0) continue;
+    
+    trades.push({
+      price: price,
+      side: isSell ? 'sell' : 'buy',
+      remark: remark
+    });
+  }
+  
+  return trades;
+}
+
+// 切换输入模式
+function switchInputMode(mode) {
+  currentInputMode = mode;
+  
+  // 更新UI
+  switch (currentInputMode) {
+    case 'single':
+      // 显示单笔输入，隐藏其他
+      singleInputMode.style.display = 'grid';
+      batchInputMode.style.display = 'none';
+      multiStockInputMode.style.display = 'none';
+      break;
+    case 'batch':
+      // 显示多笔输入，隐藏其他
+      singleInputMode.style.display = 'none';
+      batchInputMode.style.display = 'grid';
+      multiStockInputMode.style.display = 'none';
+      break;
+    case 'multiStock':
+      // 显示多笔多股输入，隐藏其他
+      singleInputMode.style.display = 'none';
+      batchInputMode.style.display = 'none';
+      multiStockInputMode.style.display = 'grid';
+      // 自动填充默认的股票列表到多行多股输入框
+      populateMultiStockInput();
+      break;
+  }
+}
+
+// 自动填充多笔多股输入框的默认股票列表
+function populateMultiStockInput() {
+  if (!multiStockInput) return;
+  
+  // 按市场分组股票
+  const taiwanStocks = STOCKS.filter(s => s.market === '台股');
+  const chinaStocks = STOCKS.filter(s => s.market === '陆股');
+  
+  // 生成默认文本
+  let defaultText = "台股：\n";
+  taiwanStocks.forEach(stock => {
+    defaultText += `${stock.name}\n`;
+  });
+  
+  defaultText += "\n陆股：\n";
+  chinaStocks.forEach(stock => {
+    defaultText += `${stock.name}\n`;
+  });
+  
+  // 如果输入框为空，则填充默认文本
+  if (!multiStockInput.value.trim()) {
+    multiStockInput.value = defaultText;
+  }
+}
+
+// 多笔多股交易解析函数
+function parseMultiStockInput(input) {
+  const trades = [];
+  
+  // 按行分割
+  const lines = input.split('\n');
+  
+  // 标记当前市场
+  let currentMarket = null;
+  
+  lines.forEach(line => {
+    // 跳过空行
+    const trimmedLine = line.trim();
+    if (!trimmedLine) return;
+    
+    // 检查是否为市场标记行
+    if (trimmedLine === '台股：' || trimmedLine === '台股:') {
+      currentMarket = '台股';
+      return;
+    }
+    if (trimmedLine === '陆股：' || trimmedLine === '陆股:') {
+      currentMarket = '陆股';
+      return;
+    }
+    
+    // 解析股票和交易价格
+    // 格式：股票名称 价格1 -价格2 价格3...
+    const parts = trimmedLine.split(/\s+/);
+    if (parts.length < 1) return;
+    
+    // 提取股票名称
+    const stockName = parts[0];
+    const stockInfo = findStockByName(stockName);
+    
+    // 如果没找到股票，尝试从当前市场的股票中匹配（忽略市场限制）
+    if (!stockInfo) {
+      // 尝试从所有股票中查找
+      const allStockInfo = STOCKS.find(s => s.name === stockName);
+      if (allStockInfo) {
+        stockInfo = allStockInfo;
+      } else {
+        // 跳过未知股票
+        return;
+      }
+    }
+    
+    // 提取价格部分
+    const priceParts = parts.slice(1);
+    if (priceParts.length === 0) return;
+    
+    // 解析每个价格
+    priceParts.forEach(pricePart => {
+      // 跳过空价格
+      if (!pricePart.trim()) return;
+      
+      // 确定交易方向
+      const isSell = pricePart.startsWith('-');
+      // 提取纯价格数字
+      const price = parseFloat(pricePart.replace(/^[+-]/, ''));
+      
+      // 验证价格有效性
+      if (isNaN(price) || price <= 0) return;
+      
+      trades.push({
+        stockInfo,
+        price,
+        side: isSell ? 'sell' : 'buy',
+        remark: ''
+      });
+    });
+  });
+  
+  return trades;
+}
+
+// 显示交易详情
+function showTradeDetail(trade) {
+  if (!trade) return;
+  
+  const stockData = STOCKS.find(s => s.name === trade.stock);
+  const type = stockData ? stockData.type : (trade.market === '台股' ? 'tA' : 'cETF');
+  
+  const sideText = trade.side === 'buy' ? '买入' : '卖出';
+  const modalTitle = document.getElementById('modalTitle');
+  const modalBody = document.getElementById('modalBody');
+  const bubbleDetailModal = document.getElementById('bubbleDetailModal');
+  
+  modalTitle.textContent = `${trade.stock}(${trade.qty}, ${type}) - ${sideText}详情`;
+  
+  // 构建模态框内容
+  const bodyContent = `
+    <div class="detail-item">
+      <span class="detail-label">股票名称：</span>
+      <span class="detail-value">${trade.stock}</span>
+    </div>
+    <div class="detail-item">
+      <span class="detail-label">交易方向：</span>
+      <span class="detail-value ${trade.side === 'buy' ? 'trade-side-buy' : 'trade-side-sell'}">${sideText}</span>
+    </div>
+    <div class="detail-item">
+      <span class="detail-label">交易数量：</span>
+      <span class="detail-value">${trade.qty}</span>
+    </div>
+    <div class="detail-item">
+      <span class="detail-label">交易单价：</span>
+      <span class="detail-value ${trade.side === 'buy' ? 'trade-side-buy' : 'trade-side-sell'}">${trade.price}</span>
+    </div>
+    <div class="detail-item">
+      <span class="detail-label">交易金额：</span>
+      <span class="detail-value">${trade.amount}</span>
+    </div>
+    <div class="detail-item">
+      <span class="detail-label">交易日期：</span>
+      <span class="detail-value">${trade.date}</span>
+    </div>
+    <div class="detail-item">
+      <span class="detail-label">输入时间：</span>
+      <span class="detail-value">${formatDateTime(trade.createdAt)}</span>
+    </div>
+    <div class="detail-item">
+      <span class="detail-label">交易备注：</span>
+      <span class="detail-value">${trade.remark || '无'}</span>
+    </div>
+  `;
+  
+  modalBody.innerHTML = bodyContent;
+  
+  // 创建按钮容器
+  const buttonContainer = document.createElement('div');
+  buttonContainer.style.display = 'flex';
+  buttonContainer.style.justifyContent = 'center';
+  buttonContainer.style.alignItems = 'center';
+  buttonContainer.style.gap = '20px';
+  buttonContainer.style.marginTop = '30px';
+  buttonContainer.style.paddingTop = '25px';
+  buttonContainer.style.borderTop = '2px solid #f3f4f6';
+  
+  // 添加关闭按钮
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'modal-action-btn close-btn';
+  closeBtn.textContent = '关闭';
+  closeBtn.style.background = 'linear-gradient(135deg, #94a3b8 0%, #cbd5e1 100%)';
+  closeBtn.style.color = '#1e293b';
+  closeBtn.style.border = 'none';
+  closeBtn.style.padding = '0';
+  closeBtn.style.borderRadius = '8px';
+  closeBtn.style.cursor = 'pointer';
+  closeBtn.style.fontSize = '12px';
+  closeBtn.style.fontWeight = '600';
+  closeBtn.style.letterSpacing = '0.5px';
+  closeBtn.style.boxShadow = '0 4px 6px rgba(148, 163, 184, 0.3), 0 2px 4px rgba(148, 163, 184, 0.2)';
+  closeBtn.style.transition = 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)';
+  closeBtn.style.textShadow = 'none';
+  closeBtn.style.width = '70px';
+  closeBtn.style.height = '24px';
+  closeBtn.style.display = 'flex';
+  closeBtn.style.alignItems = 'center';
+  closeBtn.style.justifyContent = 'center';
+  
+  closeBtn.addEventListener('mouseenter', () => {
+    closeBtn.style.transform = 'translateY(-2px)';
+    closeBtn.style.boxShadow = '0 8px 12px rgba(148, 163, 184, 0.4), 0 4px 6px rgba(148, 163, 184, 0.3)';
+    closeBtn.style.background = 'linear-gradient(135deg, #cbd5e1 0%, #e2e8f0 100%)';
+  });
+  
+  closeBtn.addEventListener('mouseleave', () => {
+    closeBtn.style.transform = 'translateY(0)';
+    closeBtn.style.boxShadow = '0 4px 6px rgba(148, 163, 184, 0.3), 0 2px 4px rgba(148, 163, 184, 0.2)';
+    closeBtn.style.background = 'linear-gradient(135deg, #94a3b8 0%, #cbd5e1 100%)';
+  });
+  
+  closeBtn.addEventListener('click', () => {
+    bubbleDetailModal.style.display = 'none';
+  });
+  
+  // 添加删除按钮
+  const deleteBtn = document.createElement('button');
+  deleteBtn.className = 'modal-action-btn delete-btn';
+  deleteBtn.textContent = '删除此交易';
+  deleteBtn.style.background = 'linear-gradient(135deg, #fca5a5 0%, #fecaca 100%)';
+  deleteBtn.style.color = '#991b1b';
+  deleteBtn.style.border = 'none';
+  deleteBtn.style.padding = '0';
+  deleteBtn.style.borderRadius = '8px';
+  deleteBtn.style.cursor = 'pointer';
+  deleteBtn.style.fontSize = '12px';
+  deleteBtn.style.fontWeight = '600';
+  deleteBtn.style.letterSpacing = '0.5px';
+  deleteBtn.style.boxShadow = '0 4px 6px rgba(252, 165, 165, 0.3), 0 2px 4px rgba(252, 165, 165, 0.2)';
+  deleteBtn.style.transition = 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)';
+  deleteBtn.style.textShadow = 'none';
+  deleteBtn.style.width = '70px';
+  deleteBtn.style.height = '24px';
+  deleteBtn.style.display = 'flex';
+  deleteBtn.style.alignItems = 'center';
+  deleteBtn.style.justifyContent = 'center';
+  
+  deleteBtn.addEventListener('mouseenter', () => {
+    deleteBtn.style.transform = 'translateY(-2px)';
+    deleteBtn.style.boxShadow = '0 8px 12px rgba(252, 165, 165, 0.4), 0 4px 6px rgba(252, 165, 165, 0.3)';
+    deleteBtn.style.background = 'linear-gradient(135deg, #fecaca 0%, #fee2e2 100%)';
+  });
+  
+  deleteBtn.addEventListener('mouseleave', () => {
+    deleteBtn.style.transform = 'translateY(0)';
+    deleteBtn.style.boxShadow = '0 4px 6px rgba(252, 165, 165, 0.3), 0 2px 4px rgba(252, 165, 165, 0.2)';
+    deleteBtn.style.background = 'linear-gradient(135deg, #fca5a5 0%, #fecaca 100%)';
+  });
+  
+  deleteBtn.addEventListener('click', async () => {
+    if (confirm('确定要删除这笔交易吗？此操作不可恢复！')) {
+      try {
+        // 删除交易
+        await tradesDB.delete(trade.id);
+        
+        // 保留该股票的配对结果（用户操作不应自动删除配对资料）
+        
+        await loadTrades();
+        applyFilters();
+        bubbleDetailModal.style.display = 'none';
+        alert('交易已删除');
+      } catch (error) {
+        console.error('删除交易失败:', error);
+        alert('删除交易失败: ' + error.message);
+      }
+    }
+  });
+  
+  buttonContainer.appendChild(closeBtn);
+  buttonContainer.appendChild(deleteBtn);
+  modalBody.appendChild(buttonContainer);
+  
+  bubbleDetailModal.style.display = 'block';
+}
+
+// 显示配对利润核算
+function showPairDetail(pair, stockName) {
+  if (!pair || !stockName) return;
+  
+  const stockData = STOCKS.find(s => s.name === stockName);
+  const type = stockData ? stockData.type : '';
+  const taxRate = TAX_RATES[type];
+  
+  const modalTitle = document.getElementById('modalTitle');
+  const modalBody = document.getElementById('modalBody');
+  const bubbleDetailModal = document.getElementById('bubbleDetailModal');
+  
+  modalTitle.textContent = `${stockName}(${pair.buy.qty}, ${type}) - 配对利润核算`;
+  
+  const buyAmount = pair.buy.price * pair.buy.qty;
+  const sellAmount = pair.sell.price * pair.sell.qty;
+  const buyTax = calculateTax(stockName, 'buy', buyAmount);
+  const sellTax = calculateTax(stockName, 'sell', sellAmount);
+  const grossProfit = sellAmount - buyAmount;
+  const netProfit = grossProfit - buyTax - sellTax;
+  
+  const bodyContent = `
+    <div class="pair-detail-section">
+      <h4 class="pair-detail-title">买入信息</h4>
+      <div class="detail-item">
+        <span class="detail-label">买入价格：</span>
+        <span class="detail-value trade-side-buy">${pair.buy.price}</span>
+      </div>
+      <div class="detail-item">
+        <span class="detail-label">买入数量：</span>
+        <span class="detail-value">${pair.buy.qty}</span>
+      </div>
+      <div class="detail-item">
+        <span class="detail-label">买入金额：</span>
+        <span class="detail-value">${buyAmount}</span>
+      </div>
+      <div class="detail-item">
+        <span class="detail-label">买入日期：</span>
+        <span class="detail-value">${pair.buy.date || ''}</span>
+      </div>
+      <div class="detail-item">
+        <span class="detail-label">买入时间：</span>
+        <span class="detail-value">${pair.buy.createdAt ? formatDateTime(pair.buy.createdAt) : ''}</span>
+      </div>
+      <div class="detail-item">
+        <span class="detail-label">买入税费率：</span>
+        <span class="detail-value">${taxRate ? taxRate.buy : 0}‱</span>
+      </div>
+      <div class="detail-item">
+        <span class="detail-label">买入税费：</span>
+        <span class="detail-value">${buyTax.toFixed(2)}</span>
+      </div>
+    </div>
+    
+    <div class="pair-detail-section">
+      <h4 class="pair-detail-title">卖出信息</h4>
+      <div class="detail-item">
+        <span class="detail-label">卖出价格：</span>
+        <span class="detail-value trade-side-sell">${pair.sell.price}</span>
+      </div>
+      <div class="detail-item">
+        <span class="detail-label">卖出数量：</span>
+        <span class="detail-value">${pair.sell.qty}</span>
+      </div>
+      <div class="detail-item">
+        <span class="detail-label">卖出金额：</span>
+        <span class="detail-value">${sellAmount}</span>
+      </div>
+      <div class="detail-item">
+        <span class="detail-label">卖出日期：</span>
+        <span class="detail-value">${pair.sell.date || ''}</span>
+      </div>
+      <div class="detail-item">
+        <span class="detail-label">卖出时间：</span>
+        <span class="detail-value">${pair.sell.createdAt ? formatDateTime(pair.sell.createdAt) : ''}</span>
+      </div>
+      <div class="detail-item">
+        <span class="detail-label">卖出税费率：</span>
+        <span class="detail-value">${taxRate ? taxRate.sell : 0}‱</span>
+      </div>
+      <div class="detail-item">
+        <span class="detail-label">卖出税费：</span>
+        <span class="detail-value">${sellTax.toFixed(2)}</span>
+      </div>
+    </div>
+    
+    <div class="pair-detail-section pair-profit-section">
+      <h4 class="pair-detail-title">利润核算</h4>
+      <div class="detail-item">
+        <span class="detail-label">毛利润（卖出-买入）：</span>
+        <span class="detail-value ${grossProfit >= 0 ? 'net-positive' : 'net-negative'}">${grossProfit.toFixed(2)}</span>
+      </div>
+      <div class="detail-item">
+        <span class="detail-label">总税费（买入+卖出）：</span>
+        <span class="detail-value">-${(buyTax + sellTax).toFixed(2)}</span>
+      </div>
+      <div class="detail-item profit-total">
+        <span class="detail-label">净利润：</span>
+        <span class="detail-value ${netProfit >= 0 ? 'net-positive' : 'net-negative'}">${netProfit.toFixed(2)}</span>
+      </div>
+    </div>
+  `;
+  
+  modalBody.innerHTML = bodyContent;
+  bubbleDetailModal.style.display = 'block';
+}
+
+// 格式化日期时间
+function formatDateTime(dateString) {
+  const createdAt = new Date(dateString);
+  return createdAt.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    millisecond: '3-digit'
+  });
+}
+
+// 初始化模态框事件
+function initModal() {
+  const bubbleDetailModal = document.getElementById('bubbleDetailModal');
+  const closeModalBtn = document.getElementById('closeModalBtn');
+  
+  // 关闭按钮事件
+  if (closeModalBtn) {
+    closeModalBtn.addEventListener('click', () => {
+      bubbleDetailModal.style.display = 'none';
+    });
+  }
+  
+  // 点击模态框外部关闭
+  if (bubbleDetailModal) {
+    bubbleDetailModal.addEventListener('click', (event) => {
+      if (event.target === bubbleDetailModal) {
+        bubbleDetailModal.style.display = 'none';
+      }
+    });
+  }
+}
+
+// 初始化配对记录查看器
+function initPairingsViewer() {
+  const showBtn = document.getElementById('showPairingsBtn');
+  const pairingsModal = document.getElementById('pairingsModal');
+  const pairingsModalBody = document.getElementById('pairingsModalBody');
+  const closeBtn = document.getElementById('closePairingsModalBtn');
+
+  if (showBtn) {
+    showBtn.addEventListener('click', async () => {
+      await showAllPairings();
+    });
+  }
+
+  if (closeBtn && pairingsModal) {
+    closeBtn.addEventListener('click', () => {
+      pairingsModal.style.display = 'none';
+    });
+  }
+
+  if (pairingsModal) {
+    pairingsModal.addEventListener('click', (e) => {
+      if (e.target === pairingsModal) pairingsModal.style.display = 'none';
+    });
+  }
+}
+
+// 显示所有配对记录（以 table 展示）
+async function showAllPairings() {
+  const pairingsModal = document.getElementById('pairingsModal');
+  const pairingsModalBody = document.getElementById('pairingsModalBody');
+  if (!pairingsModal || !pairingsModalBody) return;
+
+  let all = [];
+  try {
+    all = await tradesDB.getAllPairings();
+  } catch (err) {
+    console.error('读取配对记录失败', err);
+    pairingsModalBody.innerHTML = '<div>读取配对记录失败：' + (err.message || err) + '</div>';
+    pairingsModal.style.display = 'block';
+    return;
+  }
+
+  if (!Array.isArray(all)) all = [];
+
+  let html = '<div style="overflow:auto; max-height:60vh;"><table class="pairings-table" style="width:100%; border-collapse:collapse; font-size:13px;"><thead><tr style="background:#f3f4f6;"><th style="padding:8px;border:1px solid #e5e7eb;text-align:left;">股票</th><th style="padding:8px;border:1px solid #e5e7eb;text-align:right;">最新配对数</th><th style="padding:8px;border:1px solid #e5e7eb;text-align:right;">历史配对数</th><th style="padding:8px;border:1px solid #e5e7eb;text-align:right;">跨区块配对数</th><th style="padding:8px;border:1px solid #e5e7eb;text-align:left;">更新时间</th></tr></thead><tbody>';
+
+  all.forEach(p => {
+    const latestCount = (p.latest && Array.isArray(p.latest.pairedTrades)) ? p.latest.pairedTrades.length : 0;
+    const historyCount = (p.history && Array.isArray(p.history.pairedTrades)) ? p.history.pairedTrades.length : 0;
+    const crossCount = (p.crossBlock && Array.isArray(p.crossBlock.pairedTrades)) ? p.crossBlock.pairedTrades.length : 0;
+    html += `<tr class="pairing-row" style="cursor:pointer;" data-stock="${escapeHtml(p.stockName)}"><td style="padding:8px;border:1px solid #e5e7eb;">${escapeHtml(p.stockName)}</td><td style="padding:8px;border:1px solid #e5e7eb;text-align:right;">${latestCount}</td><td style="padding:8px;border:1px solid #e5e7eb;text-align:right;">${historyCount}</td><td style="padding:8px;border:1px solid #e5e7eb;text-align:right;">${crossCount}</td><td style="padding:8px;border:1px solid #e5e7eb;">${p.updatedAt || ''}</td></tr>`;
+    html += `<tr class="pairing-detail-row" style="display:none;"><td colspan="5" style="padding:8px;border:1px solid #e5e7eb;background:#fff;"><pre style="white-space:pre-wrap;word-break:break-word;">${escapeHtml(JSON.stringify(p, null, 2))}</pre></td></tr>`;
+  });
+
+  html += '</tbody></table></div>';
+
+  pairingsModalBody.innerHTML = html;
+  pairingsModal.style.display = 'block';
+
+  // 行点击展开详细 JSON
+  pairingsModalBody.querySelectorAll('.pairing-row').forEach((row) => {
+    row.addEventListener('click', () => {
+      const next = row.nextElementSibling;
+      if (!next) return;
+      next.style.display = next.style.display === 'none' ? 'table-row' : 'none';
+    });
+  });
+}
+
+// 初始化新增交易模态框
+function initAddTradeModal() {
+  const addTradeModal = document.getElementById('addTradeModal');
+  const closeAddTradeModalBtn = document.getElementById('closeAddTradeModalBtn');
+  const confirmAddTradeBtn = document.getElementById('confirmAddTradeBtn');
+  const addTradeStock = document.getElementById('addTradeStock');
+  const addTradePrice = document.getElementById('addTradePrice');
+  const addTradeRemark = document.getElementById('addTradeRemark');
+  
+  // 关闭按钮事件
+  if (closeAddTradeModalBtn) {
+    closeAddTradeModalBtn.addEventListener('click', () => {
+      addTradeModal.style.display = 'none';
+    });
+  }
+  
+  // 点击模态框外部关闭
+  if (addTradeModal) {
+    addTradeModal.addEventListener('click', (event) => {
+      if (event.target === addTradeModal) {
+        addTradeModal.style.display = 'none';
+      }
+    });
+  }
+  
+  // 确认添加交易事件
+  if (confirmAddTradeBtn) {
+    confirmAddTradeBtn.addEventListener('click', async () => {
+      const stockName = (addTradeStock.value || '').trim();
+      if (!stockName) { alert('请选择或输入股票'); return; }
+      
+      const stockInfo = findStockByName(stockName);
+      if (!stockInfo) { alert('未在清单找到该股票，请从下拉选择可用股票。'); return; }
+      
+      const price = Number(addTradePrice.value) || 0;
+      if (price === 0) { alert('请输入有效单价（正数表示买入，负数表示卖出）'); return; }
+      
+      // 根据价格正负确定交易方向
+      const side = price > 0 ? 'buy' : 'sell';
+      const absPrice = Math.abs(price);
+      
+      // 获取备注信息
+      const remark = (addTradeRemark.value || '').trim();
+      
+      const qty = stockInfo.qty;
+      const amount = qty * absPrice;
+      const now = new Date();
+      const t = {
+        id: generateId(),
+        date: now.toISOString().slice(0,10),
+        createdAt: now.toISOString(),
+        market: stockInfo.market,
+        stock: stockInfo.name,
+        side,
+        qty,
+        price: absPrice,
+        amount,
+        remark
+      };
+      
+      try {
+        await tradesDB.save(t);
+        // 保持已有配对结果：通过模态框新增交易不应自动删除数据库中的配对资料
+        
+        await loadTrades();
+        applyFilters();
+        
+        // 清空输入
+        addTradeStock.value = '';
+        addTradePrice.value = '';
+        addTradeRemark.value = '';
+        
+        // 关闭模态框
+        addTradeModal.style.display = 'none';
+        
+        alert('交易添加成功');
+      } catch (error) {
+        console.error('保存交易记录失败:', error);
+        alert('保存交易记录失败: ' + error.message);
+      }
+    });
+  }
+}
+
+// 打开新增交易模态框
+function openAddTradeModal(stockName) {
+  const addTradeModal = document.getElementById('addTradeModal');
+  const addTradeStock = document.getElementById('addTradeStock');
+  const addTradePrice = document.getElementById('addTradePrice');
+  const addTradeRemark = document.getElementById('addTradeRemark');
+  
+  // 预填股票名称
+  if (addTradeStock && stockName) {
+    addTradeStock.value = stockName;
+  }
+  
+  // 清空其他输入
+  if (addTradePrice) addTradePrice.value = '';
+  if (addTradeRemark) addTradeRemark.value = '';
+  
+  // 显示模态框
+  if (addTradeModal) {
+    addTradeModal.style.display = 'block';
+  }
+}
+
+// 手动配对相关变量
+let manualPairingState = {
+  currentStock: null,
+  buyTrade: null,
+  sellTrade: null
+};
+
+// 打开手动配对模态框
+function openManualPairingModal(stockName) {
+  const manualPairingContainer = document.getElementById('manualPairingContainer');
+  const buyDropContent = document.getElementById('buyDropContent');
+  const sellDropContent = document.getElementById('sellDropContent');
+  
+  // 设置当前股票
+  manualPairingState.currentStock = stockName;
+  manualPairingState.buyTrade = null;
+  manualPairingState.sellTrade = null;
+  
+  // 清空拖放区域
+  if (buyDropContent) {
+    buyDropContent.innerHTML = '<div class="drop-zone-placeholder">拖入买入交易</div>';
+  }
+  if (sellDropContent) {
+    sellDropContent.innerHTML = '<div class="drop-zone-placeholder">拖入卖出交易</div>';
+  }
+  
+  // 显示模态框
+  if (manualPairingContainer) {
+    manualPairingContainer.classList.add('show');
+  }
+  
+  // 初始化拖放功能
+  initDragAndDrop();
+}
+
+// 关闭手动配对模态框
+function closeManualPairingModal() {
+  const manualPairingContainer = document.getElementById('manualPairingContainer');
+  if (manualPairingContainer) {
+    manualPairingContainer.classList.remove('show');
+  }
+  
+  // 清空状态
+  manualPairingState.currentStock = null;
+  manualPairingState.buyTrade = null;
+  manualPairingState.sellTrade = null;
+}
+
+// 初始化拖放功能
+function initDragAndDrop() {
+  const buyDropZone = document.getElementById('buyDropZone');
+  const sellDropZone = document.getElementById('sellDropZone');
+  
+  if (!buyDropZone || !sellDropZone) return;
+  
+  // 为所有价格气泡添加拖拽功能
+  const priceBubbles = document.querySelectorAll('.price-bubble');
+  priceBubbles.forEach(bubble => {
+    if (!bubble.classList.contains('draggable')) {
+      bubble.classList.add('draggable');
+      bubble.draggable = true;
+      
+      bubble.addEventListener('dragstart', handleDragStart);
+      bubble.addEventListener('dragend', handleDragEnd);
+    }
+  });
+  
+  // 为买入区域添加拖放事件
+  buyDropZone.addEventListener('dragover', handleDragOver);
+  buyDropZone.addEventListener('dragleave', handleDragLeave);
+  buyDropZone.addEventListener('drop', (e) => handleDrop(e, 'buy'));
+  
+  // 为卖出区域添加拖放事件
+  sellDropZone.addEventListener('dragover', handleDragOver);
+  sellDropZone.addEventListener('dragleave', handleDragLeave);
+  sellDropZone.addEventListener('drop', (e) => handleDrop(e, 'sell'));
+}
+
+// 拖拽开始
+function handleDragStart(e) {
+  e.dataTransfer.setData('text/plain', JSON.stringify({
+    id: e.target.dataset.tradeId,
+    price: e.target.dataset.price,
+    side: e.target.dataset.side,
+    stock: e.target.dataset.stock,
+    date: e.target.dataset.date,
+    remark: e.target.dataset.remark
+  }));
+  e.target.classList.add('dragging');
+}
+
+// 拖拽结束
+function handleDragEnd(e) {
+  e.target.classList.remove('dragging');
+}
+
+// 拖拽经过
+function handleDragOver(e) {
+  e.preventDefault();
+  e.currentTarget.classList.add('drag-over');
+}
+
+// 拖拽离开
+function handleDragLeave(e) {
+  e.currentTarget.classList.remove('drag-over');
+}
+
+// 拖拽放置
+function handleDrop(e, zoneType) {
+  e.preventDefault();
+  e.currentTarget.classList.remove('drag-over');
+  
+  const data = e.dataTransfer.getData('text/plain');
+  if (!data) return;
+  
+  const tradeData = JSON.parse(data);
+  
+  // 验证股票是否匹配
+  if (tradeData.stock !== manualPairingState.currentStock) {
+    alert('只能拖入同一股票的交易！');
+    return;
+  }
+  
+  // 验证交易方向是否匹配
+  if (zoneType === 'buy' && tradeData.side !== 'buy') {
+    alert('买入区域只能拖入买入交易！');
+    return;
+  }
+  if (zoneType === 'sell' && tradeData.side !== 'sell') {
+    alert('卖出区域只能拖入卖出交易！');
+    return;
+  }
+  
+  // 查找完整的交易记录
+  const fullTrade = trades.find(t => t.id === tradeData.id);
+  if (!fullTrade) return;
+  
+  // 更新状态
+  if (zoneType === 'buy') {
+    manualPairingState.buyTrade = fullTrade;
+  } else {
+    manualPairingState.sellTrade = fullTrade;
+  }
+  
+  // 更新UI
+  updateDropZoneUI(zoneType, fullTrade);
+}
+
+// 更新拖放区域UI
+function updateDropZoneUI(zoneType, trade) {
+  const dropContent = document.getElementById(zoneType === 'buy' ? 'buyDropContent' : 'sellDropContent');
+  if (!dropContent) return;
+  
+  const sideText = trade.side === 'buy' ? '买入' : '卖出';
+  const priceClass = trade.side === 'buy' ? 'buy' : 'sell';
+  
+  dropContent.innerHTML = `
+    <div class="draggable-trade ${trade.side}" data-trade-id="${trade.id}">
+      <div class="draggable-trade-info">
+        <span class="draggable-trade-price ${priceClass}">${trade.price}</span>
+        <span class="draggable-trade-date">${trade.date}</span>
+      </div>
+      ${trade.remark ? `<div class="draggable-trade-remark">${trade.remark}</div>` : ''}
+    </div>
+  `;
+}
+
+// 建立配对
+async function createManualPair() {
+  if (!manualPairingState.buyTrade || !manualPairingState.sellTrade) {
+    alert('请先拖入一笔买入交易和一笔卖出交易！');
+    return;
+  }
+  
+  const buyTrade = manualPairingState.buyTrade;
+  const sellTrade = manualPairingState.sellTrade;
+  const stock = buyTrade.stock;
+  
+  try {
+    const existing = await tradesDB.getPairing(stock);
+    
+    const newPair = { buy: buyTrade, sell: sellTrade, profit: 0 };
+
+    const today = new Date().toISOString().slice(0,10);
+    const stockTrades = trades.filter(t=>t.stock===stock);
+    let nearestDate=null, minDaysDiff=Infinity;
+    stockTrades.forEach(tr=>{ const d=Math.abs((new Date(tr.date)-new Date(today))/(1000*60*60*24)); if(d<minDaysDiff){minDaysDiff=d;nearestDate=tr.date;} });
+
+    const inLatest = (buyTrade.date===nearestDate) && (sellTrade.date===nearestDate);
+    const inHistory = (buyTrade.date!==nearestDate) && (sellTrade.date!==nearestDate);
+
+    const updated = existing ? JSON.parse(JSON.stringify(existing)) : { stockName: stock, latest:{pairedTrades:[],pairedBuyIds:[],pairedSellIds:[]}, history:{pairedTrades:[],pairedBuyIds:[],pairedSellIds:[]}, crossBlock:{pairedTrades:[]} };
+
+    if (inLatest) {
+      updated.latest.pairedTrades = updated.latest.pairedTrades || [];
+      updated.latest.pairedTrades.push(newPair);
+      updated.latest.pairedBuyIds = updated.latest.pairedBuyIds || [];
+      updated.latest.pairedSellIds = updated.latest.pairedSellIds || [];
+      updated.latest.pairedBuyIds.push(buyTrade.id);
+      updated.latest.pairedSellIds.push(sellTrade.id);
+    } else if (inHistory) {
+      updated.history.pairedTrades = updated.history.pairedTrades || [];
+      updated.history.pairedTrades.push(newPair);
+      updated.history.pairedBuyIds = updated.history.pairedBuyIds || [];
+      updated.history.pairedSellIds = updated.history.pairedSellIds || [];
+      updated.history.pairedBuyIds.push(buyTrade.id);
+      updated.history.pairedSellIds.push(sellTrade.id);
+    } else {
+      updated.crossBlock.pairedTrades = updated.crossBlock.pairedTrades || [];
+      updated.crossBlock.pairedTrades.push(newPair);
+    }
+
+    await tradesDB.savePairing(updated);
+    pairingCache[stock] = {
+      latest: updated.latest || { pairedTrades: [], pairedBuyIds: [], pairedSellIds: [] },
+      history: updated.history || { pairedTrades: [], pairedBuyIds: [], pairedSellIds: [] },
+      crossBlock: updated.crossBlock || { pairedTrades: [] }
+    };
+
+    alert('配对成功！');
+    
+    closeManualPairingModal();
+    
+    await loadTrades();
+    renderBubbleView();
+  } catch (error) {
+    console.error('配对失败:', error);
+    alert('配对失败: ' + error.message);
+  }
+}
+
+// 解除配对
+async function removeManualPair() {
+  if (!manualPairingState.buyTrade || !manualPairingState.sellTrade) {
+    alert('请先拖入一笔买入交易和一笔卖出交易！');
+    return;
+  }
+  
+  const buyTrade = manualPairingState.buyTrade;
+  const sellTrade = manualPairingState.sellTrade;
+  const stock = buyTrade.stock;
+  
+  try {
+    const existing = await tradesDB.getPairing(stock);
+    if (!existing) {
+      alert('没有配对记录');
+      return;
+    }
+
+    let found = false;
+    ['latest', 'history', 'crossBlock'].forEach(section => {
+      if (existing[section] && Array.isArray(existing[section].pairedTrades)) {
+        const originalLength = existing[section].pairedTrades.length;
+        existing[section].pairedTrades = existing[section].pairedTrades.filter(p =>
+          !(p.buy.id === buyTrade.id && p.sell.id === sellTrade.id)
+        );
+        if (existing[section].pairedTrades.length !== originalLength) {
+          found = true;
+        }
+        if (existing[section].pairedBuyIds) {
+          existing[section].pairedBuyIds = existing[section].pairedBuyIds.filter(id => id !== buyTrade.id);
+        }
+        if (existing[section].pairedSellIds) {
+          existing[section].pairedSellIds = existing[section].pairedSellIds.filter(id => id !== sellTrade.id);
+        }
+      }
+    });
+
+    if (!found) {
+      alert('未找到该配对记录');
+      return;
+    }
+
+    await tradesDB.savePairing(existing);
+    pairingCache[stock] = {
+      latest: existing.latest || { pairedTrades: [], pairedBuyIds: [], pairedSellIds: [] },
+      history: existing.history || { pairedTrades: [], pairedBuyIds: [], pairedSellIds: [] },
+      crossBlock: existing.crossBlock || { pairedTrades: [] }
+    };
+
+    alert('解除配对成功！');
+    
+    closeManualPairingModal();
+    
+    await loadTrades();
+    renderBubbleView();
+  } catch (error) {
+    console.error('解除配对失败:', error);
+    alert('解除配对失败: ' + error.message);
+  }
+}
+
+async function clearAllPairings() {
+  try {
+    if (!confirm('确定要清空所有配对数据吗？此操作不可恢复！')) {
+      return;
+    }
+
+    await tradesDB.clearAllPairings();
+    pairingCache = {};
+    
+    await loadTrades();
+    applyFilters();
+    renderBubbleView();
+    
+    alert('所有配对数据已清空');
+  } catch (error) {
+    console.error('清空配对数据失败:', error);
+    alert('清空配对数据失败: ' + error.message);
+  }
+}
+
+// 初始化手动配对模态框事件
+function initManualPairingModal() {
+  const closeManualPairingBtn = document.getElementById('closeManualPairingBtn');
+  const createPairBtn = document.getElementById('createPairBtn');
+  const removePairBtn = document.getElementById('removePairBtn');
+  
+  // 关闭按钮
+  if (closeManualPairingBtn) {
+    closeManualPairingBtn.addEventListener('click', closeManualPairingModal);
+  }
+  
+  // 建立配对按钮
+  if (createPairBtn) {
+    createPairBtn.addEventListener('click', createManualPair);
+  }
+  
+  // 解除配对按钮
+  if (removePairBtn) {
+    removePairBtn.addEventListener('click', removeManualPair);
+  }
+  
+  // 点击模态框外部关闭
+  const manualPairingContainer = document.getElementById('manualPairingContainer');
+  if (manualPairingContainer) {
+    manualPairingContainer.addEventListener('click', (event) => {
+      if (event.target === manualPairingContainer) {
+        closeManualPairingModal();
+      }
+    });
+  }
+}
+
+// 暴露给调试
+window._loadTrades = loadTrades;
+window._applyFilters = applyFilters;
+
+// 初始化应用
+init();
+// 初始化模态框
+initModal();
+// 初始化新增交易模态框
+initAddTradeModal();
+
+// ==================== 拖拽配对功能 ====================
+
+// 拖拽配对区域状态
+const dragPairState = {
+  items: [],
+  collapsed: false
+};
+
+// 初始化拖拽配对功能
+initDragPairing();
+
+// 初始化拖拽配对功能
+function initDragPairing() {
+  const dragPairZone = document.getElementById('dragPairZone');
+  const toggleBtn = document.getElementById('toggleDragPairZone');
+  const confirmBtn = document.getElementById('confirmDragPairBtn');
+  const clearBtn = document.getElementById('clearDragPairBtn');
+  const dropZone = document.getElementById('dragPairDropZone');
+
+  if (!dragPairZone) return;
+
+  if (toggleBtn) {
+    toggleBtn.addEventListener('click', () => {
+      dragPairState.collapsed = !dragPairState.collapsed;
+      dragPairZone.classList.toggle('collapsed', dragPairState.collapsed);
+      toggleBtn.textContent = dragPairState.collapsed ? '+' : '−';
+    });
+  }
+
+  if (clearBtn) {
+    clearBtn.addEventListener('click', () => {
+      dragPairState.items = [];
+      updateDragPairZone();
+    });
+  }
+
+  if (confirmBtn) {
+    confirmBtn.addEventListener('click', () => {
+      confirmDragPair();
+    });
+  }
+
+  if (dropZone) {
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.classList.add('drag-over');
+    });
+
+    dropZone.addEventListener('dragleave', (e) => {
+      if (e.target === dropZone) {
+        dropZone.classList.remove('drag-over');
+      }
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('drag-over');
+      handleDrop(e);
+    });
+  }
+
+  addDraggableToBubbles();
+}
+
+function showDragPairZone() {
+  const dragPairZone = document.getElementById('dragPairZone');
+  if (dragPairZone) {
+    dragPairZone.classList.add('show');
+    dragPairState.collapsed = false;
+    dragPairZone.classList.remove('collapsed');
+    const toggleBtn = document.getElementById('toggleDragPairZone');
+    if (toggleBtn) {
+      toggleBtn.textContent = '−';
+    }
+  }
+}
+
+function hideDragPairZone() {
+  const dragPairZone = document.getElementById('dragPairZone');
+  if (dragPairZone) {
+    dragPairZone.classList.remove('show');
+    dragPairState.items = [];
+    updateDragPairZone();
+  }
+}
+
+function addDraggableToBubbles() {
+  const observer = new MutationObserver((mutations) => {
+    mutations.forEach((mutation) => {
+      mutation.addedNodes.forEach((node) => {
+        if (node.nodeType === 1) {
+          const priceBubbles = node.querySelectorAll ? node.querySelectorAll('.price-bubble') : [];
+          const tradePairs = node.querySelectorAll ? node.querySelectorAll('.trade-pair') : [];
+          
+          priceBubbles.forEach(bubble => addDraggableToBubble(bubble));
+          tradePairs.forEach(pair => addDraggableToPair(pair));
+
+          if (node.classList && node.classList.contains('price-bubble')) {
+            addDraggableToBubble(node);
+          }
+          if (node.classList && node.classList.contains('trade-pair')) {
+            addDraggableToPair(node);
+          }
+        }
+      });
+    });
+  });
+
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true
+  });
+
+  document.querySelectorAll('.price-bubble').forEach(bubble => addDraggableToBubble(bubble));
+  document.querySelectorAll('.trade-pair').forEach(pair => addDraggableToPair(pair));
+}
+
+function addDraggableToBubble(bubble) {
+  if (bubble.classList.contains('draggable')) return;
+
+  bubble.classList.add('draggable');
+  bubble.setAttribute('draggable', 'true');
+
+  bubble.addEventListener('dragstart', (e) => {
+    bubble.classList.add('dragging');
+    
+    const tradeData = getTradeDataFromBubble(bubble);
+    if (tradeData) {
+      e.dataTransfer.setData('application/json', JSON.stringify(tradeData));
+      e.dataTransfer.effectAllowed = 'copy';
+    }
+  });
+
+  bubble.addEventListener('dragend', () => {
+    bubble.classList.remove('dragging');
+  });
+}
+
+function addDraggableToPair(pairBubble) {
+  if (pairBubble.classList.contains('draggable')) return;
+
+  pairBubble.classList.add('draggable');
+  pairBubble.setAttribute('draggable', 'true');
+
+  pairBubble.addEventListener('dragstart', (e) => {
+    pairBubble.classList.add('dragging');
+    
+    const pairData = getPairDataFromBubble(pairBubble);
+    if (pairData) {
+      e.dataTransfer.setData('application/json', JSON.stringify({
+        type: 'pair',
+        ...pairData
+      }));
+      e.dataTransfer.effectAllowed = 'copy';
+    }
+  });
+
+  pairBubble.addEventListener('dragend', () => {
+    pairBubble.classList.remove('dragging');
+  });
+}
+
+function getTradeDataFromBubble(bubble) {
+  const parentSection = bubble.closest('.bubble-section');
+  const stockBubble = bubble.closest('.stock-bubble-separated');
+  
+  if (!stockBubble) return null;
+
+  const stockNameSpan = stockBubble.querySelector('.stock-name');
+  const stockName = stockNameSpan ? stockNameSpan.textContent.split('(')[0].trim() : '';
+  
+  const priceText = bubble.textContent.replace(/−/g, '-').replace(/-/g, '');
+  const price = parseFloat(priceText);
+  const isSell = bubble.classList.contains('sell');
+  const side = isSell ? 'sell' : 'buy';
+
+  const trade = trades.find(t => 
+    t.stock === stockName && 
+    t.price === price && 
+    t.side === side
+  );
+
+  if (!trade) return null;
+
+  return {
+    type: 'trade',
+    trade: trade
+  };
+}
+
+function getPairDataFromBubble(pairBubble) {
+  const buyBubble = pairBubble.querySelector('.price-bubble.buy');
+  const sellBubble = pairBubble.querySelector('.price-bubble.sell');
+  
+  if (!buyBubble || !sellBubble) return null;
+
+  const buyData = getTradeDataFromBubble(buyBubble);
+  const sellData = getTradeDataFromBubble(sellBubble);
+
+  if (!buyData || !sellData) return null;
+
+  return {
+    buy: buyData.trade,
+    sell: sellData.trade
+  };
+}
+
+function handleDrop(e) {
+  const data = e.dataTransfer.getData('application/json');
+  if (!data) return;
+
+  const parsedData = JSON.parse(data);
+
+  if (parsedData.type === 'trade') {
+    addTradeToPairZone(parsedData.trade);
+  } else if (parsedData.type === 'pair') {
+    addPairToPairZone(parsedData);
+  }
+}
+
+function addTradeToPairZone(trade) {
+  const exists = dragPairState.items.some(item => 
+    item.type === 'trade' && item.trade.id === trade.id
+  );
+  
+  if (exists) {
+    alert('该交易已在配对区域中');
+    return;
+  }
+
+  dragPairState.items.push({
+    type: 'trade',
+    trade: trade
+  });
+
+  updateDragPairZone();
+}
+
+function addPairToPairZone(pairData) {
+  const qty = pairData.buy.qty;
+  const buyAmount = pairData.buy.price * qty;
+  const sellAmount = pairData.sell.price * qty;
+  const buyTax = calculateTax(pairData.buy.stock, 'buy', buyAmount);
+  const sellTax = calculateTax(pairData.sell.stock, 'sell', sellAmount);
+  const profit = sellAmount - buyAmount - buyTax - sellTax;
+
+  dragPairState.items.push({
+    type: 'pair',
+    buy: pairData.buy,
+    sell: pairData.sell,
+    profit: profit
+  });
+
+  updateDragPairZone();
+}
+
+function removeTradeFromPairZone(index) {
+  dragPairState.items.splice(index, 1);
+  updateDragPairZone();
+}
+
+function updateDragPairZone() {
+  const itemsContainer = document.getElementById('dragPairItems');
+  const placeholder = document.querySelector('.drop-zone-placeholder');
+  const confirmBtn = document.getElementById('confirmDragPairBtn');
+  const infoDiv = document.getElementById('dragPairInfo');
+
+  if (!itemsContainer) return;
+
+  itemsContainer.innerHTML = '';
+
+  if (dragPairState.items.length === 0) {
+    placeholder.classList.remove('hidden');
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = '配对';
+    infoDiv.classList.remove('show');
+  } else {
+    placeholder.classList.add('hidden');
+    confirmBtn.disabled = false;
+    
+    const hasPairs = dragPairState.items.some(item => item.type === 'pair');
+    const hasTrades = dragPairState.items.some(item => item.type === 'trade');
+    
+    if (hasPairs && hasTrades) {
+      confirmBtn.textContent = '配对/解除配对';
+    } else if (hasPairs) {
+      confirmBtn.textContent = '解除配对';
+    } else {
+      confirmBtn.textContent = '配对';
+    }
+  }
+
+  dragPairState.items.forEach((item, index) => {
+    const itemEl = document.createElement('div');
+    itemEl.className = `drag-pair-item ${item.type === 'trade' ? item.trade.side : 'pair'}`;
+
+    if (item.type === 'trade') {
+      const trade = item.trade;
+      itemEl.innerHTML = `
+        <div class="item-info">
+          <span class="item-stock">${trade.stock}</span>
+          <span class="item-price">${trade.side === 'sell' ? '-' : ''}${trade.price}</span>
+        </div>
+        <button class="item-remove" onclick="removeTradeFromPairZone(${index})">✕</button>
+      `;
+    } else if (item.type === 'pair') {
+      itemEl.innerHTML = `
+        <div class="item-info">
+          <span class="item-stock">${item.buy.stock}</span>
+          <span class="item-price">${item.buy.price} / -${item.sell.price}</span>
+        </div>
+        <button class="item-remove" onclick="removeTradeFromPairZone(${index})">✕</button>
+      `;
+    }
+
+    itemsContainer.appendChild(itemEl);
+  });
+
+  if (dragPairState.items.length > 0) {
+    updatePairInfo(infoDiv);
+  }
+}
+
+function updatePairInfo(infoDiv) {
+  if (!infoDiv) return;
+
+  const trades = dragPairState.items.filter(item => item.type === 'trade').map(item => item.trade);
+  const pairs = dragPairState.items.filter(item => item.type === 'pair');
+
+  if (trades.length === 0 && pairs.length === 0) {
+    infoDiv.classList.remove('show');
+    return;
+  }
+
+  let totalProfit = 0;
+  let totalTax = 0;
+
+  if (trades.length === 2) {
+    const buyTrade = trades.find(t => t.side === 'buy');
+    const sellTrade = trades.find(t => t.side === 'sell');
+
+    if (buyTrade && sellTrade && buyTrade.stock === sellTrade.stock) {
+      const qty = buyTrade.qty;
+      const buyAmount = buyTrade.price * qty;
+      const sellAmount = sellTrade.price * qty;
+      const buyTax = calculateTax(buyTrade.stock, 'buy', buyAmount);
+      const sellTax = calculateTax(sellTrade.stock, 'sell', sellAmount);
+      const profit = sellAmount - buyAmount - buyTax - sellTax;
+
+      totalProfit = profit;
+      totalTax = buyTax + sellTax;
+    }
+  }
+
+  if (pairs.length > 0) {
+    pairs.forEach(pair => {
+      if (pair.profit !== undefined) {
+        totalProfit += pair.profit;
+      } else {
+        const qty = pair.buy.qty;
+        const buyAmount = pair.buy.price * qty;
+        const sellAmount = pair.sell.price * qty;
+        const buyTax = calculateTax(pair.buy.stock, 'buy', buyAmount);
+        const sellTax = calculateTax(pair.sell.stock, 'sell', sellAmount);
+        const profit = sellAmount - buyAmount - buyTax - sellTax;
+        totalProfit += profit;
+      }
+    });
+  }
+
+  infoDiv.innerHTML = `
+    <div class="info-row">
+      <span class="info-label">预计利润：</span>
+      <span class="info-value ${totalProfit >= 0 ? '' : 'negative'}">¥${totalProfit.toFixed(2)}</span>
+    </div>
+    ${totalTax > 0 ? `
+    <div class="info-row">
+      <span class="info-label">税费：</span>
+      <span class="info-value">¥${totalTax.toFixed(2)}</span>
+    </div>
+    ` : ''}
+  `;
+
+  infoDiv.classList.add('show');
+}
+
+async function confirmDragPair() {
+  const trades = dragPairState.items.filter(item => item.type === 'trade').map(item => item.trade);
+  const pairs = dragPairState.items.filter(item => item.type === 'pair');
+
+  if (pairs.length > 0) {
+    for (const pair of pairs) {
+      const qty = pair.buy.qty;
+      const buyAmount = pair.buy.price * qty;
+      const sellAmount = pair.sell.price * qty;
+      const buyTax = calculateTax(pair.buy.stock, 'buy', buyAmount);
+      const sellTax = calculateTax(pair.sell.stock, 'sell', sellAmount);
+      const profit = sellAmount - buyAmount - buyTax - sellTax;
+
+      const confirmResult = confirm('🔓 解除配对确认\n\n股票名称：' + pair.buy.stock + '\n买入价格：¥' + pair.buy.price + '\n卖出价格：¥' + pair.sell.price + '\n数量：' + qty + '\n买入金额：¥' + buyAmount.toFixed(2) + '\n卖出金额：¥' + sellAmount.toFixed(2) + '\n买入税费：¥' + buyTax.toFixed(2) + '\n卖出税费：¥' + sellTax.toFixed(2) + '\n预计利润：¥' + profit.toFixed(2) + '\n\n确定要解除这个配对吗？');
+      
+      if (confirmResult) {
+        await unpairTrades(pair.buy, pair.sell);
+        alert('✅ 解除配对成功！\n\n股票名称：' + pair.buy.stock + '\n买入价格：¥' + pair.buy.price + '\n卖出价格：¥' + pair.sell.price + '\n数量：' + qty + '\n买入金额：¥' + buyAmount.toFixed(2) + '\n卖出金额：¥' + sellAmount.toFixed(2) + '\n买入税费：¥' + buyTax.toFixed(2) + '\n卖出税费：¥' + sellTax.toFixed(2) + '\n预计利润：¥' + profit.toFixed(2));
+      }
+    }
+  }
+
+  if (trades.length === 2) {
+    const buyTrade = trades.find(t => t.side === 'buy');
+    const sellTrade = trades.find(t => t.side === 'sell');
+
+    if (!buyTrade || !sellTrade) {
+      const buyCount = trades.filter(t => t.side === 'buy').length;
+      const sellCount = trades.filter(t => t.side === 'sell').length;
+      
+      let errorMsg = '❌ 配对失败\n\n原因：请选择一笔买入和一笔卖出交易进行配对\n\n当前选择：';
+      if (buyCount === 0) {
+        errorMsg += '\n- 已选择 ' + sellCount + ' 笔卖出交易';
+        errorMsg += '\n- 未选择买入交易';
+      } else if (sellCount === 0) {
+        errorMsg += '\n- 已选择 ' + buyCount + ' 笔买入交易';
+        errorMsg += '\n- 未选择卖出交易';
+      }
+      
+      alert(errorMsg);
+      return;
+    }
+
+    if (buyTrade.stock !== sellTrade.stock) {
+      alert('❌ 配对失败\n\n原因：买入和卖出交易必须是同一只股票\n\n买入股票：' + buyTrade.stock + '\n卖出股票：' + sellTrade.stock);
+      return;
+    }
+
+    const qty = buyTrade.qty;
+    const buyAmount = buyTrade.price * qty;
+    const sellAmount = sellTrade.price * qty;
+    const buyTax = calculateTax(buyTrade.stock, 'buy', buyAmount);
+    const sellTax = calculateTax(sellTrade.stock, 'sell', sellAmount);
+    const profit = sellAmount - buyAmount - buyTax - sellTax;
+
+    if (profit <= 0) {
+      const confirmResult = confirm('⚠️ 配对警告\n\n原因：配对将产生非正利润\n\n股票名称：' + buyTrade.stock + '\n买入价格：¥' + buyTrade.price + '\n卖出价格：¥' + sellTrade.price + '\n数量：' + qty + '\n买入金额：¥' + buyAmount.toFixed(2) + '\n卖出金额：¥' + sellAmount.toFixed(2) + '\n买入税费：¥' + buyTax.toFixed(2) + '\n卖出税费：¥' + sellTax.toFixed(2) + '\n预计利润：¥' + profit.toFixed(2) + '\n\n是否仍然强制配对？');
+      if (!confirmResult) {
+        return;
+      }
+    }
+
+    await pairTrades(buyTrade, sellTrade);
+    
+    alert('✅ 配对成功！\n\n股票名称：' + buyTrade.stock + '\n买入价格：¥' + buyTrade.price + '\n卖出价格：¥' + sellTrade.price + '\n数量：' + qty + '\n买入金额：¥' + buyAmount.toFixed(2) + '\n卖出金额：¥' + sellAmount.toFixed(2) + '\n买入税费：¥' + buyTax.toFixed(2) + '\n卖出税费：¥' + sellTax.toFixed(2) + '\n预计利润：¥' + profit.toFixed(2));
+  } else if (trades.length > 0 && trades.length !== 2) {
+    const buyCount = trades.filter(t => t.side === 'buy').length;
+    const sellCount = trades.filter(t => t.side === 'sell').length;
+    
+    let errorMsg = '❌ 配对失败\n\n原因：请选择一笔买入和一笔卖出交易进行配对\n\n当前选择：';
+    if (buyCount === 0 && sellCount === 0) {
+      errorMsg += '\n- 未选择任何交易';
+    } else if (buyCount === 0) {
+      errorMsg += '\n- 已选择 ' + sellCount + ' 笔卖出交易';
+      errorMsg += '\n- 未选择买入交易';
+    } else if (sellCount === 0) {
+      errorMsg += '\n- 已选择 ' + buyCount + ' 笔买入交易';
+      errorMsg += '\n- 未选择卖出交易';
+    } else {
+      errorMsg += '\n- 已选择 ' + buyCount + ' 笔买入交易';
+      errorMsg += '\n- 已选择 ' + sellCount + ' 笔卖出交易';
+      errorMsg += '\n- 只能选择 1 笔买入和 1 笔卖出交易';
+    }
+    
+    alert(errorMsg);
+    return;
+  }
+
+  dragPairState.items = [];
+  updateDragPairZone();
+  hideDragPairZone();
+}
+
+async function pairTrades(buyTrade, sellTrade) {
+  try {
+    const qty = buyTrade.qty;
+    const buyAmount = buyTrade.price * qty;
+    const sellAmount = sellTrade.price * qty;
+    const buyTax = calculateTax(buyTrade.stock, 'buy', buyAmount);
+    const sellTax = calculateTax(sellTrade.stock, 'sell', sellAmount);
+    const profit = sellAmount - buyAmount - buyTax - sellTax;
+
+    if (!(profit > 0)) {
+      if (!confirm('配对将产生非正利润，是否仍然强制配对？')) {
+        return;
+      }
+    }
+
+    const stock = buyTrade.stock;
+    const today = new Date().toISOString().slice(0, 10);
+    const stockTrades = trades.filter(t => t.stock === stock);
+    let nearestDate = null, minDaysDiff = Infinity;
+    stockTrades.forEach(tr => {
+      const d = Math.abs((new Date(tr.date) - new Date(today)) / (1000 * 60 * 60 * 24));
+      if (d < minDaysDiff) {
+        minDaysDiff = d;
+        nearestDate = tr.date;
+      }
+    });
+
+    const inLatest = (buyTrade.date === nearestDate) && (sellTrade.date === nearestDate);
+    const inHistory = (buyTrade.date !== nearestDate) && (sellTrade.date !== nearestDate);
+
+    const existing = await tradesDB.getPairing(stock);
+    const newPair = { buy: buyTrade, sell: sellTrade, profit };
+
+    const updated = existing ? JSON.parse(JSON.stringify(existing)) : {
+      stockName: stock,
+      latest: { pairedTrades: [], pairedBuyIds: [], pairedSellIds: [] },
+      history: { pairedTrades: [], pairedBuyIds: [], pairedSellIds: [] },
+      crossBlock: { pairedTrades: [] }
+    };
+
+    if (inLatest) {
+      updated.latest.pairedTrades = updated.latest.pairedTrades || [];
+      updated.latest.pairedTrades.push(newPair);
+      updated.latest.pairedBuyIds = updated.latest.pairedBuyIds || [];
+      updated.latest.pairedSellIds = updated.latest.pairedSellIds || [];
+      updated.latest.pairedBuyIds.push(buyTrade.id);
+      updated.latest.pairedSellIds.push(sellTrade.id);
+    } else if (inHistory) {
+      updated.history.pairedTrades = updated.history.pairedTrades || [];
+      updated.history.pairedTrades.push(newPair);
+      updated.history.pairedBuyIds = updated.history.pairedBuyIds || [];
+      updated.history.pairedSellIds = updated.history.pairedSellIds || [];
+      updated.history.pairedBuyIds.push(buyTrade.id);
+      updated.history.pairedSellIds.push(sellTrade.id);
+    } else {
+      updated.crossBlock.pairedTrades = updated.crossBlock.pairedTrades || [];
+      updated.crossBlock.pairedTrades.push(newPair);
+    }
+
+    await tradesDB.savePairing(updated);
+    pairingCache[stock] = {
+      latest: updated.latest || { pairedTrades: [], pairedBuyIds: [], pairedSellIds: [] },
+      history: updated.history || { pairedTrades: [], pairedBuyIds: [], pairedSellIds: [] },
+      crossBlock: updated.crossBlock || { pairedTrades: [] }
+    };
+
+    await loadTrades();
+    applyFilters();
+    renderBubbleView();
+  } catch (error) {
+    console.error('配对失败:', error);
+    alert('配对失败: ' + error.message);
+  }
+}
+
+async function unpairTrades(buyTrade, sellTrade) {
+  try {
+    const stock = buyTrade.stock;
+    const existing = await tradesDB.getPairing(stock);
+    if (!existing) {
+      alert('没有配对记录');
+      return;
+    }
+
+    ['latest', 'history', 'crossBlock'].forEach(section => {
+      if (existing[section] && Array.isArray(existing[section].pairedTrades)) {
+        existing[section].pairedTrades = existing[section].pairedTrades.filter(p =>
+          !(p.buy.id === buyTrade.id && p.sell.id === sellTrade.id)
+        );
+        if (existing[section].pairedBuyIds) {
+          existing[section].pairedBuyIds = existing[section].pairedBuyIds.filter(id => id !== buyTrade.id);
+        }
+        if (existing[section].pairedSellIds) {
+          existing[section].pairedSellIds = existing[section].pairedSellIds.filter(id => id !== sellTrade.id);
+        }
+      }
+    });
+
+    await tradesDB.savePairing(existing);
+    pairingCache[stock] = {
+      latest: existing.latest || { pairedTrades: [], pairedBuyIds: [], pairedSellIds: [] },
+      history: existing.history || { pairedTrades: [], pairedBuyIds: [], pairedSellIds: [] },
+      crossBlock: existing.crossBlock || { pairedTrades: [] }
+    };
+
+    await loadTrades();
+    applyFilters();
+    renderBubbleView();
+  } catch (error) {
+    console.error('解除配对失败:', error);
+    alert('解除配对失败: ' + error.message);
+  }
+}

@@ -1,0 +1,515 @@
+/**
+ * 买卖建议插件样式
+ * 与股票模式下的气泡样式完全一致
+ */
+
+.buy-sell-advice-content {
+  padding: 10px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+.advice-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0;
+  flex-grow: 1;
+  overflow-y: auto;
+  display: block;
+  border: 1px solid #ff0000;
+}
+
+.advice-table tbody {
+  display: block;
+}
+
+.advice-table tr {
+  border-bottom: 1px solid #e5e7eb;
+  display: table;
+  width: 100%;
+  table-layout: fixed;
+}
+
+.advice-table tr:last-child {
+  border-bottom: none;
+}
+
+.advice-title {
+  width: 200px;
+  padding: 15px;
+  font-weight: bold;
+  font-size: 16px;
+  color: #374151;
+  background-color: #f9fafb;
+  border-right: 1px solid #e5e7eb;
+  vertical-align: top;
+}
+
+.advice-content {
+  padding: 15px;
+  background-color: #ffffff;
+  vertical-align: top;
+}
+
+.advice-suggested-price {
+  width: 60px;
+  padding: 15px;
+  font-weight: bold;
+  font-size: 14px;
+  color: #374151;
+  background-color: #f9fafb;
+  border-left: 1px solid #e5e7eb;
+  vertical-align: top;
+  text-align: left;
+}
+
+.suggested-price-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.suggested-item {
+  display: block;
+  font-size: 12px;
+  font-weight: normal;
+  margin-bottom: 8px;
+}
+
+.suggested-item:last-child {
+  margin-bottom: 0;
+}
+
+.suggested-item .price-bubble {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  min-width: auto !important;
+  width: auto !important;
+  padding: 6px 10px !important;
+  font-size: 12px !important;
+}
+
+.bubble-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 0;
+  background-color: transparent;
+  border-radius: 0;
+  min-height: 60px;
+  align-items: center;
+}
+
+.bubble-container .suggested-item {
+  width: 100%;
+}
+
+/* 基本气泡样式 - 比主程式小 */
+.buy-sell-advice-content .price-bubble {
+  display: inline-block;
+  padding: 6px 10px;
+  border-radius: 16px;
+  font-size: 12px;
+  font-weight: 900;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  transition: all 0.2s ease;
+  position: relative;
+  z-index: 5;
+  text-shadow: 0.5px 0 0 currentColor;
+  letter-spacing: 0.3px;
+  background: white;
+}
+
+.buy-sell-advice-content .price-bubble:hover {
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+  z-index: 10;
+}
+
+/* 正常气泡悬停效果 */
+.buy-sell-advice-content .price-bubble:not(.today-trade):not(.recent-trade):hover {
+  transform: translateY(-2px);
+}
+
+/* 当天交易气泡悬停效果 */
+.buy-sell-advice-content .price-bubble.today-trade:hover {
+  transform: translateY(-2px) scale(1.2);
+}
+
+/* 最近一天交易气泡悬停效果 */
+.buy-sell-advice-content .price-bubble.recent-trade:hover {
+  transform: translateY(-2px) scale(1.1);
+}
+
+/* 恢复基本的买卖样式 - 与主程式一致 */
+.buy-sell-advice-content .price-bubble.buy {
+  color: #ef4444;
+  border-color: #93c5fd;
+  background-color: #bfdbfe;
+}
+
+.buy-sell-advice-content .price-bubble.sell {
+  color: #3b82f6;
+  border-color: #fca5a5;
+  background-color: #fecaca;
+}
+
+/* 确保今天和最近一天的交易气泡样式覆盖基本样式 - 与主程式一致 */
+.buy-sell-advice-content .price-bubble.today-trade {
+  border-radius: 20px;
+  border-width: 3px;
+  border-color: #dc2626 !important;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  transform: scale(1.2);
+}
+
+.buy-sell-advice-content .price-bubble.recent-trade {
+  border-radius: 20px;
+  border-width: 3px;
+  border-color: #3b82f6 !important;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  transform: scale(1.1);
+}
+
+/* 配对气泡样式 - 与主程式一致 */
+.buy-sell-advice-content .trade-pair {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 50%, #fcd34d 100%);
+  border: 1px solid #ef4444;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  margin: 2px 0;
+  transition: all 0.2s ease;
+  position: relative;
+  z-index: 3;
+  cursor: pointer;
+}
+
+.buy-sell-advice-content .trade-pair:hover {
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+  transform: translateY(-2px);
+  z-index: 6;
+}
+
+.buy-sell-advice-content .trade-pair .price-bubble {
+  margin: 0;
+  box-shadow: none;
+}
+
+.buy-sell-advice-content .trade-pair .price-bubble.buy {
+  background-color: #bfdbfe;
+  border-color: #93c5fd;
+}
+
+.buy-sell-advice-content .trade-pair .price-bubble.sell {
+  background-color: #fecaca;
+  border-color: #fca5a5;
+}
+
+/* 未配对气泡样式，与主程式一致 */
+.buy-sell-advice-content .price-bubble {
+  margin: 0 !important;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+  border-width: 1px !important;
+  transform: none !important;
+}
+
+.buy-sell-advice-content .price-bubble.buy {
+  background-color: #bfdbfe !important;
+  border-color: #93c5fd !important;
+}
+
+.buy-sell-advice-content .price-bubble.sell {
+  background-color: #fecaca !important;
+  border-color: #fca5a5 !important;
+}
+
+/* 配对气泡中的今天交易气泡 - 与主程式一致 */
+.buy-sell-advice-content .trade-pair .price-bubble.today-trade {
+  border-color: #dc2626 !important;
+  border-width: 3px !important;
+}
+
+/* 配对气泡中的最近一天交易气泡 - 与主程式一致 */
+.buy-sell-advice-content .trade-pair .price-bubble.recent-trade {
+  border-color: #3b82f6 !important;
+  border-width: 3px !important;
+}
+
+/* 最新交易气泡样式 - 与主程式一致 */
+.buy-sell-advice-content .price-bubble.latest-trade {
+  position: relative;
+  /* 网格背景样式 */
+  background-image: 
+      linear-gradient(rgba(200, 200, 200, 0.1) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(200, 200, 200, 0.1) 1px, transparent 1px);
+  /* 密度提高：网格改为 10px */
+  background-size: 10px 10px;
+  background-position: 0 0;
+  /* 使用更粗的字体显示价格 */
+  font-weight: 1000;
+}
+
+/* 最新交易气泡的小勾勾 - 与主程式一致 */
+.buy-sell-advice-content .price-bubble.latest-trade::after {
+  content: '✓';
+  position: absolute;
+  top: -8px;
+  left: -4px;
+  font-size: 16px;
+  font-weight: bold;
+  color: black;
+  z-index: 10;
+}
+
+/* 买入气泡的网格背景 - 与主程式一致 */
+.buy-sell-advice-content .price-bubble.buy.latest-trade {
+  background-color: #fef2f2;
+  background-image: 
+      linear-gradient(rgba(239, 68, 68, 0.28) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(239, 68, 68, 0.28) 1px, transparent 1px);
+  /* 使用更粗的字体显示价格 */
+  font-weight: 1000;
+}
+
+/* 卖出气泡的网格背景 - 与主程式一致 */
+.buy-sell-advice-content .price-bubble.sell.latest-trade {
+  background-color: #eff6ff;
+  background-image: 
+      linear-gradient(rgba(59, 130, 246, 0.28) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(59, 130, 246, 0.28) 1px, transparent 1px);
+  /* 使用更粗的字体显示价格 */
+  font-weight: 1000;
+}
+
+/* 拖拽样式 */
+.buy-sell-advice-content .price-bubble.dragging {
+  opacity: 0.6;
+  transform: scale(1.1);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  z-index: 10001;
+}
+
+.buy-sell-advice-content .price-bubble.draggable {
+  cursor: grab;
+}
+
+.buy-sell-advice-content .price-bubble.draggable:active {
+  cursor: grabbing;
+}
+
+.buy-sell-advice-content .trade-pair.draggable {
+  cursor: grab;
+}
+
+.buy-sell-advice-content .trade-pair.draggable:active {
+  cursor: grabbing;
+}
+
+.buy-sell-advice-content .trade-pair.dragging {
+  opacity: 0.6;
+  transform: scale(1.05);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
+  z-index: 10001;
+}
+
+/* 高亮 - 未配对但在当天/最近五日中出现的同价气泡 */
+.buy-sell-advice-content .price-bubble.highlight-unpaired {
+  border: 4px solid #e53935 !important;
+  border-radius: 20px !important;
+  background-color: #fff3f2 !important;
+  box-shadow: none !important;
+  z-index: 10002 !important;
+}
+
+/* 可隐藏的气泡（由数据标记 hideable === 'Y' 控制） */
+.buy-sell-advice-content .price-bubble.hideable {
+  border: 3px dashed black !important;
+  border-radius: 20px !important;
+}
+
+/* 新增交易按钮样式 */
+.advice-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 10px;
+  border-bottom: 2px solid #e5e7eb;
+  flex-shrink: 0;
+}
+
+.advice-header h3 {
+  margin: 0;
+  color: #1e40af;
+  font-size: 18px;
+}
+
+.header-buttons {
+  display: flex;
+  gap: 10px;
+}
+
+.grid-trading-btn {
+  padding: 8px 16px;
+  background-color: #8b5cf6;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.grid-trading-btn:hover {
+  background-color: #7c3aed;
+}
+
+.add-trade-btn {
+  padding: 8px 16px;
+  background-color: #10b981;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.add-trade-btn:hover {
+  background-color: #059669;
+}
+
+.refresh-btn {
+  padding: 8px 16px;
+  background-color: #3b82f6;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.refresh-btn:hover {
+  background-color: #2563eb;
+}
+
+.advice-table::-webkit-scrollbar {
+  width: 8px;
+}
+
+.advice-table::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.advice-table::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+.advice-table::-webkit-scrollbar-thumb:hover {
+  background: #a1a1a1;
+}
+
+/* 带日期的气泡样式 */
+.buy-sell-advice-content .price-bubble.with-date {
+  position: relative;
+  padding-top: 14px;
+  min-width: 40px;
+}
+
+.buy-sell-advice-content .price-bubble.with-date .bubble-date {
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 9px;
+  color: #666;
+  white-space: nowrap;
+  font-weight: normal;
+  background: #f3f4f6;
+  padding: 0 3px;
+  border-radius: 3px;
+}
+
+/* 最新交易的勾号样式 */
+.buy-sell-advice-content .price-bubble.with-date .bubble-date .latest-check {
+  font-size: 14px;
+  font-weight: bold;
+  color: #ef4444;
+  margin-right: 1px;
+  line-height: 1;
+  vertical-align: middle;
+}
+
+/* 价格分布柱状图样式 */
+.price-distribution-chart {
+  width: 100%;
+  padding: 10px;
+  box-sizing: border-box;
+}
+
+.price-distribution-chart .chart-title {
+  font-size: 14px;
+  margin-bottom: 10px;
+}
+
+.price-distribution-chart .chart-scroll-container {
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: visible;
+}
+
+.price-distribution-chart .chart-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.price-distribution-chart .chart-buy-area,
+.price-distribution-chart .chart-sell-area {
+  overflow: visible;
+}
+
+.price-distribution-chart .chart-bars {
+  padding: 5px 0;
+}
+
+.price-distribution-chart .bar-group {
+  flex-shrink: 0;
+}
+
+.price-distribution-chart .bar {
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.price-distribution-chart .bar:hover {
+  opacity: 0.8;
+  transform: scale(1.05);
+}
+
+.price-distribution-chart .buy-bar {
+  background: linear-gradient(180deg, #ef4444 0%, #dc2626 100%);
+}
+
+.price-distribution-chart .sell-bar {
+  background: linear-gradient(0deg, #3b82f6 0%, #2563eb 100%);
+}
+
+.price-distribution-chart .zero-line {
+  background-color: #374151;
+}
+
+.price-distribution-chart .chart-x-axis {
+  padding-top: 5px;
+  border-top: 1px solid #e5e7eb;
+}

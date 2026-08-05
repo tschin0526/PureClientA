@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>简单测试浮动窗口</title>
+    <link rel="stylesheet" href="components/FloatingWindow/FloatingWindow.css">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            height: 100vh;
+            background: #f0f0f0;
+        }
+        .test-btn {
+            padding: 10px 20px;
+            margin: 10px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        .test-btn:hover {
+            background: #0069d9;
+        }
+        .debug-info {
+            margin: 20px 0;
+            padding: 10px;
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+    <h1>简单测试浮动窗口</h1>
+    <button class="test-btn" onclick="createFloatingWindow()">创建浮动窗口</button>
+    <button class="test-btn" onclick="checkFloatingWindows()">检查浮动窗口</button>
+    
+    <div class="debug-info" id="debugInfo">
+        调试信息将显示在这里...
+    </div>
+    
+    <script src="components/FloatingWindow/FloatingWindow.js"></script>
+    
+    <script>
+        function log(message) {
+            console.log(message);
+            const debugInfo = document.getElementById('debugInfo');
+            debugInfo.innerHTML += new Date().toLocaleTimeString() + ': ' + message + '\n';
+            debugInfo.scrollTop = debugInfo.scrollHeight;
+        }
+        
+        function createFloatingWindow() {
+            log('开始创建浮动窗口');
+            
+            try {
+                log('FloatingWindow 构造函数: ' + typeof FloatingWindow);
+                
+                const windowId = 'test-window-' + Date.now();
+                log('创建浮动窗口，ID: ' + windowId);
+                
+                const testWindow = new FloatingWindow({
+                    title: '测试窗口',
+                    width: '400px',
+                    height: '300px',
+                    x: '100px',
+                    y: '100px',
+                    draggable: true,
+                    id: windowId
+                });
+                
+                log('浮动窗口创建成功');
+                log('浮动窗口对象: ' + testWindow);
+                log('浮动窗口元素: ' + testWindow.getElement());
+                
+                // 设置内容
+                testWindow.setContent('<h2>测试内容</h2><p>这是一个测试浮动窗口的内容。</p><p>如果您能看到这个窗口，说明FloatingWindow组件工作正常。</p>');
+                log('浮动窗口内容已设置');
+                
+                // 显示窗口
+                testWindow.show();
+                log('浮动窗口已显示');
+                
+                // 检查窗口是否在DOM中
+                setTimeout(() => {
+                    const windowElement = document.getElementById(windowId);
+                    log('DOM中的浮动窗口元素: ' + windowElement);
+                    if (windowElement) {
+                        log('浮动窗口样式: ' + windowElement.style.cssText);
+                        log('浮动窗口显示状态: ' + windowElement.style.display);
+                        log('浮动窗口位置: ' + windowElement.style.transform);
+                        log('浮动窗口z-index: ' + windowElement.style.zIndex);
+                    }
+                }, 100);
+                
+            } catch (error) {
+                log('创建浮动窗口失败: ' + error.message);
+                log('错误堆栈: ' + error.stack);
+            }
+        }
+        
+        function checkFloatingWindows() {
+            log('检查DOM中的浮动窗口元素');
+            const floatingWindows = document.querySelectorAll('.floating-window');
+            log('找到 ' + floatingWindows.length + ' 个浮动窗口元素');
+            floatingWindows.forEach((window, index) => {
+                log('浮动窗口 ' + index + ': ' + window.id);
+                log('显示状态: ' + window.style.display);
+                log('位置: ' + window.style.transform);
+                log('z-index: ' + window.style.zIndex);
+            });
+        }
+        
+        // 页面加载完成后自动测试
+        window.onload = function() {
+            log('页面加载完成，开始自动测试');
+            createFloatingWindow();
+        };
+    </script>
+</body>
+</html>

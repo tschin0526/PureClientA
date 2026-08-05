@@ -1,0 +1,418 @@
+const CACHE_NAME = 'pureClientA-1.5.1(30)';
+
+// 智能作用域检测 - 支持子目录部署
+const SW_SCOPE = (() => {
+  if (self.registration && self.registration.scope) {
+    return self.registration.scope;
+  }
+  // 从当前脚本位置推断作用域
+  const scriptUrl = new URL(self.location.href);
+  const pathParts = scriptUrl.pathname.split('/');
+  pathParts.pop(); // 移除 sw.js 文件名
+  return scriptUrl.origin + pathParts.join('/') + '/';
+})();
+
+const ROOT_URL = new URL('./', SW_SCOPE).href;
+const INDEX_URL = new URL('./index.html', SW_SCOPE).href;
+const MANIFEST_URL = new URL('./manifest.json', SW_SCOPE).href;
+
+const STATIC_ASSETS = [
+  './index.html',
+  './manifest.json',
+  './styles.css',
+  './components/FloatingWindow/FloatingWindow.css',
+  './components/FloatingWindow/FloatingWindow.js',
+  './buySellAdvicePlugin.css',
+  './buySellAdvicePlugin.js',
+  './addTradePlugin.css',
+  './addTradePlugin.js',
+  './bubbleHideManagerPlugin.css',
+  './bubbleHideManagerPlugin.js',
+  './stockInfoPlugin.css',
+  './stockInfoPlugin.js',
+  './systemOpenAccountPlugin.css',
+  './systemOpenAccountPlugin.js',
+  './compactModePlugin.css',
+  './debugUtils.js',
+  './versionHistoryPlugin.js',
+  './pairDetailPlugin.js',
+  './stockData.js',
+  './categoryData.js',
+  './objectData.js',
+  './modules/historyDataModule.js',
+  './modules/historyDataPlugin.js',
+  './modules/index.js',
+  './pairingsViewer.js',
+  './bubbleDetail.js',
+  './json-manager.js',
+  './clearMainDbPlugin.js',
+  './set-main-db-plugin.js',
+  './stockDetailPlugin.js',
+  './chartDetailModalPlugin.js',
+  './gridTradingPlugin.js',
+  './batchHideBubblePlugin.js',
+  './compactDataExportPlugin.js',
+  './stockListDisplayPlugin.js',
+  './categoryManagerPlugin.js',
+  './objectCodeManagerPlugin.js',
+  './app.js',
+  './icons/icon-192.png',
+  './icons/icon-512.png'
+];
+
+const CDN_ASSETS = [
+  'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'
+];
+
+const OFFLINE_PAGE = `
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#1e40af">
+  <title>交易记录 - 离线模式</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
+      color: white;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      text-align: center;
+    }
+    h1 { font-size: 32px; margin-bottom: 20px; }
+    .status { font-size: 18px; margin-bottom: 30px; opacity: 0.9; }
+    .spinner {
+      width: 50px; height: 50px;
+      border: 4px solid rgba(255,255,255,0.3);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 30px auto;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .actions {
+      margin-top: 40px;
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+      align-items: center;
+    }
+    .btn {
+      padding: 12px 24px;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      cursor: pointer;
+      transition: all 0.3s;
+      text-decoration: none;
+      display: inline-block;
+    }
+    .btn-primary {
+      background: white;
+      color: #1e40af;
+      font-weight: bold;
+    }
+    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+    .btn-secondary {
+      background: rgba(255,255,255,0.1);
+      color: white;
+      border: 1px solid rgba(255,255,255,0.3);
+    }
+    .btn-secondary:hover { background: rgba(255,255,255,0.2); }
+    .info {
+      margin-top: 40px;
+      padding: 20px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 8px;
+      text-align: left;
+    }
+    .info h3 { margin-bottom: 10px; font-size: 18px; }
+    .info p { margin-bottom: 8px; opacity: 0.9; font-size: 14px; }
+    .update-banner {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      background: #10b981;
+      color: white;
+      padding: 15px;
+      text-align: center;
+      z-index: 1000;
+      display: none;
+    }
+    .update-banner.show { display: block; }
+    .update-banner .btn { margin-left: 15px; }
+  </style>
+</head>
+<body>
+  <div id="updateBanner" class="update-banner">
+    <span>🎉 应用已更新！</span>
+    <button class="btn btn-primary" onclick="location.reload()">立即刷新</button>
+  </div>
+
+  <div class="container">
+    <h1>📱 交易记录系统</h1>
+    <div class="status">当前处于离线模式</div>
+    <div class="spinner"></div>
+
+    <div class="actions">
+      <button class="btn btn-primary" onclick="location.reload()">重试连接</button>
+      <button class="btn btn-secondary" onclick="showOfflineHelp()">离线帮助</button>
+    </div>
+
+    <div class="info" id="offlineHelp" style="display: none;">
+      <h3>💡 离线模式说明</h3>
+      <p>• 您的交易数据已安全保存在浏览器本地</p>
+      <p>• 可以在离线状态下继续查看和编辑记录</p>
+      <p>• 网络恢复后，数据会自动同步</p>
+      <p>• 如果这是首次离线访问，请先联网加载应用</p>
+      <p>• 确保已接受 HTTPS 证书以启用离线功能</p>
+    </div>
+  </div>
+
+  <script>
+    let retryCount = 0;
+    const maxRetries = 5;
+
+    function checkOnline() {
+      return navigator.onLine;
+    }
+
+    function showOfflineHelp() {
+      const help = document.getElementById('offlineHelp');
+      help.style.display = help.style.display === 'none' ? 'block' : 'none';
+    }
+
+    // 自动重试连接
+    function autoRetry() {
+      if (retryCount < maxRetries && !checkOnline()) {
+        setTimeout(() => {
+          retryCount++;
+          console.log('离线模式：自动重试连接 (' + retryCount + '/' + maxRetries + ')');
+          location.reload();
+        }, 3000);
+      }
+    }
+
+    // 监听网络状态变化
+    window.addEventListener('online', () => {
+      console.log('网络已恢复，重新加载应用');
+      location.reload();
+    });
+
+    // 检查是否有新版本
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', (event) => {
+        if (event.data && event.data.type === 'UPDATE_AVAILABLE') {
+          document.getElementById('updateBanner').classList.add('show');
+        }
+      });
+    }
+
+    // 启动自动重试
+    autoRetry();
+  </script>
+</body>
+</html>
+`;
+
+self.addEventListener('install', (event) => {
+  console.log('[SW v5] 安装开始...');
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => {
+      console.log('[SW v5] 正在预缓存所有资源...');
+      return cache.addAll(STATIC_ASSETS).then(() => {
+        console.log('[SW v5] 静态资源缓存完成');
+        return Promise.all(
+          CDN_ASSETS.map(url =>
+            cache.add(url).catch(err => {
+              console.warn('[SW v5] CDN 缓存失败:', url);
+              return Promise.resolve();
+            })
+          )
+        );
+      }).then(() => {
+        console.log('[SW v5] 所有资源缓存完成');
+      });
+    }).then(() => {
+      console.log('[SW v5] 安装完成，跳过等待激活');
+      return self.skipWaiting();
+    })
+  );
+});
+
+self.addEventListener('activate', (event) => {
+  console.log('[SW v7] 激活开始...');
+  event.waitUntil(
+    caches.keys().then((cacheNames) => {
+      // 开发环境：清除所有旧缓存
+      const deletePromises = cacheNames
+        .filter(name => {
+          // 只保留当前版本的缓存
+          return name !== CACHE_NAME;
+        })
+        .map(name => {
+          console.log('[SW v7] 删除旧缓存:', name);
+          return caches.delete(name);
+        });
+
+      return Promise.all(deletePromises);
+    }).then(() => {
+      console.log('[SW v7] 缓存清理完成');
+      return self.clients.claim();
+    }).then(() => {
+      console.log('[SW v7] 激活完成，已接管所有客户端');
+      // 通知所有客户端新版本已激活
+      return self.clients.matchAll().then(clients => {
+        clients.forEach(client => {
+          client.postMessage({
+            type: 'UPDATE_AVAILABLE',
+            version: CACHE_NAME
+          });
+        });
+      });
+    })
+  );
+});
+
+self.addEventListener('fetch', (event) => {
+  const request = event.request;
+  const url = new URL(request.url);
+
+  if (request.method !== 'GET') {
+    return;
+  }
+
+  // 检查是否是开发环境（localhost、127.0.0.1 或本地网络 IP）
+  const isDev = url.hostname === 'localhost' || 
+                url.hostname === '127.0.0.1' ||
+                url.hostname.startsWith('192.168.') ||
+                url.hostname.startsWith('10.') ||
+                url.hostname.startsWith('172.');
+
+  event.respondWith(
+    (async () => {
+      try {
+        // 开发环境：优先从网络获取
+        if (isDev) {
+          console.log('[SW v7] 开发模式，优先从网络获取');
+          try {
+            const networkResponse = await fetch(request);
+            if (networkResponse.ok) {
+              const cache = await caches.open(CACHE_NAME);
+              cache.put(request, networkResponse.clone());
+            }
+            return networkResponse;
+          } catch (err) {
+            console.log('[SW v7] 网络失败，尝试缓存');
+            const cachedResponse = await caches.match(request);
+            if (cachedResponse) {
+              return cachedResponse;
+            }
+            return new Response(OFFLINE_PAGE, {
+              status: 200,
+              headers: { 'Content-Type': 'text/html; charset=utf-8' }
+            });
+          }
+        }
+
+        // 生产环境：原有的缓存策略
+        if (request.mode === 'navigate') {
+          console.log('[SW v7] 导航请求:', url.pathname);
+
+          let cachedResponse = await caches.match(request);
+          if (!cachedResponse) {
+            cachedResponse = await caches.match(ROOT_URL);
+          }
+          if (!cachedResponse) {
+            cachedResponse = await caches.match(INDEX_URL);
+          }
+
+          if (cachedResponse) {
+            console.log('[SW v7] ✅ 从缓存返回页面');
+            return cachedResponse;
+          }
+
+          try {
+            const networkResponse = await fetch(request);
+            if (networkResponse.ok) {
+              const cache = await caches.open(CACHE_NAME);
+              cache.put(request, networkResponse.clone());
+            }
+            return networkResponse;
+          } catch (err) {
+            console.log('[SW v7] ⚠️ 网络失败，返回离线页面');
+            return new Response(OFFLINE_PAGE, {
+              status: 200,
+              headers: { 'Content-Type': 'text/html; charset=utf-8' }
+            });
+          }
+        }
+
+        if (url.origin !== self.location.origin) {
+          const cachedResponse = await caches.match(request);
+          if (cachedResponse) {
+            return cachedResponse;
+          }
+          try {
+            const networkResponse = await fetch(request);
+            if (networkResponse.ok) {
+              const cache = await caches.open(CACHE_NAME);
+              cache.put(request, networkResponse.clone());
+            }
+            return networkResponse;
+          } catch (err) {
+             
+            return new Response('', { status: 404 });
+          }
+        }
+
+        const cachedResponse = await caches.match(request);
+        if (cachedResponse) {
+          try {
+            const networkResponse = await fetch(request);
+            if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
+              const cache = await caches.open(CACHE_NAME);
+              cache.put(request, networkResponse.clone());
+            }
+          } catch (err) {}
+          return cachedResponse;
+        }
+
+        try {
+          const networkResponse = await fetch(request);
+          if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
+            const cache = await caches.open(CACHE_NAME);
+            cache.put(request, networkResponse.clone());
+          }
+          return networkResponse;
+        } catch (err) {
+          return new Response('', { status: 404 });
+        }
+      } catch (error) {
+        console.error('[SW v7] fetch 处理错误:', error);
+        return new Response(OFFLINE_PAGE, {
+          status: 200,
+          headers: { 'Content-Type': 'text/html; charset=utf-8' }
+        });
+      }
+    })()
+  );
+});
+
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+  if (event.data && event.data.type === 'GET_VERSION') {
+    event.ports[0].postMessage({ version: CACHE_NAME });
+  }
+});
