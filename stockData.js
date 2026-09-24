@@ -92,7 +92,11 @@ const ALL_STOCKS = [
   { name: '黄金ETF', code: '', screenshotName: '', qty: 3000, market: '陆股', type: 'cETF' },
   { name: '医疗ETF', code: '', screenshotName: '', qty: 50000, market: '陆股', type: 'cETF' },
   { name: '陆股A50', code: '', screenshotName: '', qty: 20000, market: '陆股', type: 'cETF' },
-  { name: '兴业积存金', code: '', screenshotName: '', qty: 5, market: '陆股', type: 'cG' }
+  { name: '兴业积存金', code: '', screenshotName: '', qty: 5, market: '陆股', type: 'cG' },
+  { id: '159831', name: '金ETF嘉实', code: '159831', screenshotName: '金ETF嘉实', qty: 5, market: '陆股', type: 'cETF' },
+  { id: '2884', name: '玉山金', code: '2884', screenshotName: '玉山金', qty: 1000, market: '台股', type: 'cA' },
+  { id: '8069', name: '元太', code: '8069', screenshotName: '元太', qty: 1000, market: '台股', type: 'tA' },
+  { id: '00935B', name: '群益ESG', code: '00935B', screenshotName: '群益ESG', qty: 1000, market: '台股', type: 'tETF' }  
 ];
 
 const FREQUENT_STOCKS = [
