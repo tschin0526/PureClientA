@@ -965,6 +965,7 @@ class CompactModePlugin {
             <div class="market-smart-add" style="display: flex; align-items: flex-start; gap: 8px; flex-wrap: wrap;">
               <div style="display: flex; flex-direction: column; gap: 4px;">
                 <div style="display: flex; align-items: center; gap: 8px;">
+                  <button class="trade-list-btn" data-market="${marketName}" title="查看${marketName}交易明细" style="padding: 4px 10px; border: 2px solid #3b82f6; border-radius: 4px; background: #3b82f6; color: white; font-size: 12px; font-weight: bold; cursor: pointer; white-space: nowrap;">交易列表</button>
                   <input type="text" class="smart-add-price" data-market="${marketName}" placeholder="输入单价（-号表示卖出）" style="padding: 4px 8px; border: 2px solid #fbbf24; border-radius: 4px; font-size: 12px; font-weight: bold; width: 140px;">
                   <button class="keypad-toggle-btn" data-market="${marketName}" title="显示/隐藏数字键盘" style="padding: 0; border: none; border-radius: 0; background: transparent; color: #3b82f6; font-size: 28px; cursor: pointer; display: flex; align-items: center; justify-content: center; width: auto; height: auto; line-height: 1;">
                     ⌨️
@@ -1006,6 +1007,75 @@ class CompactModePlugin {
         </div>
       </div>
     `;
+  }
+
+  // 显示市场交易明细子视窗（按输入时间由大到小排序）
+  showTradeListModal(marketName, filterDate, winEl) {
+    // 移除已存在的交易明细弹窗，避免重复
+    const existingModal = winEl.querySelector('#tradeListModal');
+    if (existingModal) existingModal.remove();
+
+    const trades = (window.trades || [])
+      .filter(t => t.market === marketName && t.date === filterDate)
+      .map(t => {
+        const createdAt = t.createdAt || t.createdat || t.created_at || '';
+        const ts = createdAt ? new Date(createdAt).getTime() : 0;
+        return { ...t, _ts: ts };
+      })
+      .sort((a, b) => b._ts - a._ts);
+
+    const rowsHtml = trades.map((t, idx) => {
+      const isBuy = t.side === 'buy';
+      const timeStr = t._ts ? new Date(t._ts).toTimeString().slice(0, 8) : '-';
+      return `
+        <tr style="border-bottom: 1px solid #f3f4f6;">
+          <td style="padding: 6px 8px; font-size: 13px; color: #9ca3af; text-align: center; width: 40px;">${idx + 1}</td>
+          <td style="padding: 6px 10px; font-size: 13px; font-weight: 600; color: #374151; text-align: left;">${t.stock}</td>
+          <td style="padding: 6px 10px; font-size: 13px; font-weight: bold; text-align: center; color: ${isBuy ? '#ef4444' : '#22c55e'};">${isBuy ? '+' : '-'} ${isBuy ? '买入' : '卖出'}</td>
+          <td style="padding: 6px 10px; font-size: 13px; color: #374151; text-align: right;">${t.price}</td>
+          <td style="padding: 6px 10px; font-size: 13px; color: #6b7280; text-align: center;">${timeStr}</td>
+        </tr>
+      `;
+    }).join('');
+
+    const emptyHtml = `
+      <tr>
+        <td colspan="5" style="padding: 20px; font-size: 13px; color: #9ca3af; text-align: center;">${filterDate} ${marketName} 无交易记录</td>
+      </tr>
+    `;
+
+    const modal = document.createElement('div');
+    modal.id = 'tradeListModal';
+    modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 2000; display: flex; justify-content: center; align-items: center;';
+    modal.innerHTML = `
+      <div style="background: white; border-radius: 12px; padding: 16px; max-width: 480px; width: 90%; max-height: 70vh; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <div style="font-size: 15px; font-weight: bold; color: #374151;">${marketName} 交易明细 <span style="font-size: 12px; font-weight: normal; color: #9ca3af;">${filterDate}（${trades.length}笔）</span></div>
+          <button id="closeTradeListModal" style="border: none; background: transparent; font-size: 18px; cursor: pointer; color: #6b7280;">✕</button>
+        </div>
+        <div style="overflow-y: auto; border: 1px solid #e5e7eb; border-radius: 8px;">
+          <table style="width: 100%; border-collapse: collapse;">
+            <thead>
+              <tr style="background: #f9fafb; position: sticky; top: 0;">
+                <th style="padding: 8px 8px; font-size: 12px; color: #6b7280; text-align: center; width: 40px;">项次</th>
+                <th style="padding: 8px 10px; font-size: 12px; color: #6b7280; text-align: left;">股票名称</th>
+                <th style="padding: 8px 10px; font-size: 12px; color: #6b7280; text-align: center;">买卖</th>
+                <th style="padding: 8px 10px; font-size: 12px; color: #6b7280; text-align: right;">交易单价</th>
+                <th style="padding: 8px 10px; font-size: 12px; color: #6b7280; text-align: center;">输入时间</th>
+              </tr>
+            </thead>
+            <tbody>${trades.length > 0 ? rowsHtml : emptyHtml}</tbody>
+          </table>
+        </div>
+      </div>
+    `;
+    winEl.appendChild(modal);
+
+    // 关闭事件：点击关闭按钮或遮罩层空白处
+    modal.querySelector('#closeTradeListModal').addEventListener('click', () => modal.remove());
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) modal.remove();
+    });
   }
 
   renderStockCard(stock, isVertical = false, filterDate) {
@@ -3595,6 +3665,18 @@ class CompactModePlugin {
             console.error('新增交易失败:', error);
             this.speakErrorAndAlert('新增交易失败: ' + error.message);
           }
+        });
+      });
+
+      // 为交易列表按钮添加点击事件：打开该市场的交易明细子视窗
+      const tradeListBtns = winEl.querySelectorAll('.trade-list-btn[data-market]');
+      tradeListBtns.forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const marketName = btn.dataset.market;
+          const fd = filterDateInput ? filterDateInput.value.trim() : '';
+          if (!fd) return;
+          this.showTradeListModal(marketName, fd, winEl);
         });
       });
 
