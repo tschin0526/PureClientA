@@ -53,14 +53,15 @@ class HistoryDataPlugin {
     this.floatingWindow.show();
     
     // 绑定事件
-    this.bindEvents(stockName);
+    this.bindEvents(stockName, market);
   }
 
   /**
    * 绑定弹窗内的事件处理
    * @param {string} stockName - 股票名称
+   * @param {string} market - 市场
    */
-  bindEvents(stockName) {
+  bindEvents(stockName, market) {
     const popupElement = this.floatingWindow.getElement();
     if (!popupElement) return;
 
@@ -69,6 +70,14 @@ class HistoryDataPlugin {
     if (exportPdfBtn) {
       exportPdfBtn.addEventListener('click', () => {
         this.exportToPDF(stockName);
+      });
+    }
+
+    // 绑定导出 EXCEL 按钮
+    const exportExcelBtn = popupElement.querySelector('#exportExcelBtn');
+    if (exportExcelBtn) {
+      exportExcelBtn.addEventListener('click', () => {
+        this.exportToExcel(stockName, market);
       });
     }
     
@@ -339,77 +348,376 @@ class HistoryDataPlugin {
   }
 
   /**
-   * 生成历史数据弹窗内容
+   * 导出历史数据为 Excel 文件（.xlsx，含「汇总」与「历史明细」两个工作表，数值列可在 Excel 中直接计算）
    * @param {string} stockName - 股票名称
    * @param {string} market - 市场
-   * @param {Array} historyData - 历史数据
-   * @param {Object} priceExtremes - 价格极值信息
-   * @param {string} filterDate - 筛选日期
-   * @returns {string} HTML内容
    */
-  generateContent(stockName, market, historyData, priceExtremes, filterDate) {
+  exportToExcel(stockName, market) {
+    const popupElement = this.floatingWindow ? this.floatingWindow.getElement() : null;
+    const exportBtn = popupElement ? popupElement.querySelector('#exportExcelBtn') : null;
+    const originalText = exportBtn ? exportBtn.innerHTML : '';
+
+    try {
+      // 检查必要的库是否加载
+      if (typeof window.XLSX === 'undefined') {
+        alert('Excel 导出库未加载，请检查网络连接');
+        return;
+      }
+
+      // 显示加载提示
+      if (exportBtn) {
+        exportBtn.innerHTML = '⏳ 导出中...';
+        exportBtn.disabled = true;
+      }
+
+      // 获取筛选日期（与弹窗保持一致）
+      const filterDateInput = document.getElementById('filterDate');
+      const filterDate = filterDateInput ? filterDateInput.value.trim() : '';
+
+      // 与弹窗共用同一份行模型数据
+      const { rows, priceExtremes, positionStats } = this.buildHistoryRows(stockName, market, filterDate);
+
+      // ===== Sheet1：历史明细 =====
+      // 将每个「交易气泡」（未配对的单独买入/卖出）与「配对气泡」（已配对的买入+卖出组合）展开为一行
+      // 配对气泡的日期取买入/卖出中较大的日期；已配对的交易不再作为单独气泡重复出现，避免结余计算重复
+      const detailHeader = ['交易日期', '买入交易数量', '买入交易单价', '买入交易金额', '卖出交易数量', '卖出交易单价', '卖出交易金额', '毛利润', '累计结余数量'];
+
+      const flatItems = [];
+      rows.forEach(row => {
+        // 配对气泡（已配对的买入+卖出组合）
+        row.pairs.forEach(pair => {
+          const buy = pair.buy;
+          const sell = pair.sell;
+          const buyTime = buy && buy.createdAt ? new Date(buy.createdAt).getTime() : 0;
+          const sellTime = sell && sell.createdAt ? new Date(sell.createdAt).getTime() : 0;
+          const timestamp = Math.max(buyTime, sellTime);
+          const buyQty = buy ? (parseFloat(buy.qty) || 0) : 0;
+          const buyPrice = buy ? (parseFloat(buy.price) || 0) : 0;
+          const buyAmount = buyQty * buyPrice;
+          const sellQty = sell ? (parseFloat(sell.qty) || 0) : 0;
+          const sellPrice = sell ? (parseFloat(sell.price) || 0) : 0;
+          const sellAmount = sellQty * sellPrice;
+          // 配对日期取买卖中较大的日期
+          const pairDate = buy && sell
+            ? (buy.date > sell.date ? buy.date : sell.date)
+            : (buy ? buy.date : (sell ? sell.date : row.date));
+          flatItems.push({
+            date: pairDate,
+            timestamp,
+            buyQty, buyPrice, buyAmount,
+            sellQty, sellPrice, sellAmount,
+            grossProfit: sellAmount - buyAmount
+          });
+        });
+
+        // 未配对的单独交易气泡（buildHistoryRows 已排除已配对交易，不会重复计算）
+        row.unpaired.forEach(trade => {
+          const timestamp = trade.createdAt ? new Date(trade.createdAt).getTime() : 0;
+          const qty = parseFloat(trade.qty) || 0;
+          const price = parseFloat(trade.price) || 0;
+          const amount = qty * price;
+          if (trade.side === 'buy') {
+            flatItems.push({
+              date: trade.date,
+              timestamp,
+              buyQty: qty, buyPrice: price, buyAmount: amount,
+              sellQty: 0, sellPrice: 0, sellAmount: 0,
+              grossProfit: 0
+            });
+          } else {
+            flatItems.push({
+              date: trade.date,
+              timestamp,
+              buyQty: 0, buyPrice: 0, buyAmount: 0,
+              sellQty: qty, sellPrice: price, sellAmount: amount,
+              grossProfit: 0
+            });
+          }
+        });
+      });
+
+      // 按交易发生时间正序计算累计结余数量（从最早到最晚累加 买入数量 - 卖出数量）
+      flatItems.sort((a, b) => {
+        if (a.date !== b.date) return a.date.localeCompare(b.date);
+        return a.timestamp - b.timestamp;
+      });
+      let cumulativeQty = 0;
+      flatItems.forEach(item => {
+        cumulativeQty += item.buyQty - item.sellQty;
+        item.cumulativeQty = cumulativeQty;
+      });
+
+      // 按交易日期倒序显示（最近的在第一行）
+      flatItems.reverse();
+
+      const detailRows = flatItems.map(item => [
+        item.date,
+        this.roundTo2(item.buyQty),
+        this.roundTo2(item.buyPrice),
+        this.roundTo2(item.buyAmount),
+        this.roundTo2(item.sellQty),
+        this.roundTo2(item.sellPrice),
+        this.roundTo2(item.sellAmount),
+        this.roundTo2(item.grossProfit),
+        this.roundTo2(item.cumulativeQty)
+      ]);
+
+      const detailSheet = XLSX.utils.aoa_to_sheet([detailHeader, ...detailRows]);
+      detailSheet['!cols'] = [
+        { wch: 12 }, { wch: 13 }, { wch: 13 }, { wch: 14 },
+        { wch: 13 }, { wch: 13 }, { wch: 14 }, { wch: 13 }, { wch: 14 }
+      ];
+
+      // ===== Sheet2：汇总 =====
+      const { long: longStats, short: shortStats } = positionStats;
+      // 行模型按日期倒序，首行（最新日期）的累计值即为全周期总计
+      const newestRow = rows.length > 0 ? rows[0] : null;
+      const formatExtremePrice = (trade) => (trade ? `${trade.price}（${trade.date}）` : '-');
+      const summarySheet = XLSX.utils.aoa_to_sheet([
+        ['项目', '数值'],
+        ['股票名称', `${stockName}（${market}）`],
+        ['导出时间', new Date().toLocaleString('zh-CN')],
+        ['多头部位', `${longStats.count}笔 / ${longStats.totalQty}股${longStats.avgPrice ? `（平均股价 ${longStats.avgPrice}）` : ''}`],
+        ['空头部位', `${shortStats.count}笔 / ${shortStats.totalQty}股${shortStats.avgPrice ? `（平均股价 ${shortStats.avgPrice}）` : ''}`],
+        ['买入最高价', formatExtremePrice(priceExtremes.buy.maxTrade)],
+        ['买入最低价', formatExtremePrice(priceExtremes.buy.minTrade)],
+        ['卖出最高价', formatExtremePrice(priceExtremes.sell.maxTrade)],
+        ['卖出最低价', formatExtremePrice(priceExtremes.sell.minTrade)],
+        ['累计净利润', newestRow ? this.roundTo2(newestRow.cumulative.netProfit) : 0],
+        ['累计结余数量', newestRow ? this.roundTo2(newestRow.cumulative.qty) : 0],
+        ['累计结余金额', newestRow ? this.roundTo2(newestRow.cumulative.balance) : 0]
+      ]);
+      summarySheet['!cols'] = [{ wch: 14 }, { wch: 36 }];
+
+      // ===== 生成并保存文件 =====
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, detailSheet, '历史明细');
+      XLSX.utils.book_append_sheet(workbook, summarySheet, '汇总');
+
+      const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+      const fileName = `${stockName}_历史数据_${dateStr}.xlsx`;
+      XLSX.writeFile(workbook, fileName);
+
+      // 恢复按钮状态
+      if (exportBtn) {
+        exportBtn.innerHTML = originalText;
+        exportBtn.disabled = false;
+      }
+
+      console.log(`Excel 导出成功（共 ${flatItems.length} 笔交易）: ${fileName}`);
+    } catch (error) {
+      console.error('Excel 导出失败:', error);
+
+      // 恢复按钮状态
+      if (exportBtn) {
+        exportBtn.innerHTML = originalText || '📊 导出EXCEL';
+        exportBtn.disabled = false;
+      }
+
+      alert('Excel 导出失败: ' + error.message);
+    }
+  }
+
+  /**
+   * 数值保留 2 位小数（消除浮点计算噪声，便于 Excel 直接计算）
+   * @param {number} value - 数值
+   * @returns {number} 保留 2 位小数后的数值
+   */
+  roundTo2(value) {
+    return Math.round((parseFloat(value) || 0) * 100) / 100;
+  }
+
+  /**
+   * 构建历史数据行模型（弹窗渲染与 Excel 导出共用的单一数据源）
+   * @param {string} stockName - 股票名称
+   * @param {string} market - 市场
+   * @param {string} filterDate - 筛选日期
+   * @returns {Object} { rows, priceExtremes, positionStats, latestTradeId }
+   *   rows: 每日行模型数组（按日期倒序），每行包含：
+   *     date       - 交易日期
+   *     pairs      - 该日期行的配对交易（买入/卖出，已按交易时间倒序）
+   *     unpaired   - 该日期行的未配对交易（已按交易时间倒序）
+   *     summary    - 当日汇总 { netQty, netAmount, totalPairedNetProfit, ... }
+   *     cumulative - 截至当日的累计值 { qty, balance, netProfit }
+   */
+  buildHistoryRows(stockName, market, filterDate) {
     const trades = window.trades || [];
     const pairingCache = window.pairingCache || {};
-    
+
     // 获取该股票的所有交易
     const stockTrades = trades.filter(t => t.stock === stockName && t.market === market);
-    
+
     // 获取配对信息
     const pairing = pairingCache[stockName] || {};
     const pairedBuyIds = new Set(pairing.pairedBuyIds || []);
     const pairedSellIds = new Set(pairing.pairedSellIds || []);
-    
+
+    // 计算未配对交易的最大/最小价格
+    const priceExtremes = HistoryDataModule.calculateUnpairedPriceExtremes(stockTrades, pairedBuyIds, pairedSellIds);
+
+    // 计算多头/空头部位统计（未配对交易）
+    const allUnpairedTrades = stockTrades.filter(t => !pairedBuyIds.has(t.id) && !pairedSellIds.has(t.id));
+    const positionStats = {
+      long: this.calculatePositionStats(allUnpairedTrades.filter(t => t.side === 'buy')),
+      short: this.calculatePositionStats(allUnpairedTrades.filter(t => t.side === 'sell'))
+    };
+
     // 在历史数据中显示的交易中找出最新的交易ID（根据创建时间）
     const latestTradeId = HistoryDataModule.findLatestTradeId(stockTrades, stockName);
-    
+
     // 按日期分组交易
     const tradesByDate = HistoryDataModule.groupTradesByDate(stockTrades);
-    
+
     // 按日期排序（最近的在前）
     const sortedDates = HistoryDataModule.getSortedDates(tradesByDate, false);
-    
+
+    // ===== 第一遍：筛选有数据的日期，计算每日汇总 =====
+    const dateSummaries = {};
+    const datePairsByDate = {};
+    sortedDates.forEach(date => {
+      // 如果没有交易数据，则跳过该日期
+      if (!HistoryDataModule.hasTradesForDate(tradesByDate, date, pairing, pairedBuyIds, pairedSellIds)) {
+        return;
+      }
+
+      // 找出该日期的配对
+      const datePairs = [];
+      if (pairing.pairedTrades) {
+        pairing.pairedTrades.forEach(pair => {
+          const pairDate = pair.buy.date > pair.sell.date ? pair.buy.date : pair.sell.date;
+          if (pairDate === date) {
+            datePairs.push(pair);
+          }
+        });
+      }
+      datePairsByDate[date] = datePairs;
+
+      dateSummaries[date] = this.calculateDateSummary(
+        stockName,
+        market,
+        date,
+        tradesByDate[date],
+        datePairs,
+        pairedBuyIds,
+        pairedSellIds
+      );
+    });
+
+    // ===== 倒序累计：结余数量、结余金额、累计净利润 =====
+    let cumulativeBalance = 0;
+    let cumulativeQty = 0;
+    let cumulativeNetProfit = 0;
+    const cumulativeByDate = {};
+    for (let i = sortedDates.length - 1; i >= 0; i--) {
+      const date = sortedDates[i];
+      if (!dateSummaries[date]) {
+        continue;
+      }
+      cumulativeBalance += dateSummaries[date].netAmount + dateSummaries[date].totalPairedNetProfit;
+      cumulativeQty += dateSummaries[date].netQty;
+      cumulativeNetProfit += dateSummaries[date].totalPairedNetProfit;
+      cumulativeByDate[date] = {
+        qty: cumulativeQty,
+        balance: cumulativeBalance,
+        netProfit: cumulativeNetProfit
+      };
+    }
+
+    // ===== 第二遍：组装行模型 =====
+    const rows = [];
+    sortedDates.forEach(date => {
+      if (!dateSummaries[date]) {
+        return;
+      }
+
+      // 该日期的配对，按交易时间排序（最新的在前）
+      const datePairs = [...datePairsByDate[date]].sort((a, b) => {
+        const getPairTimestamp = (pair) => {
+          const buyTime = pair.buy && pair.buy.createdAt ? new Date(pair.buy.createdAt).getTime() : 0;
+          const sellTime = pair.sell && pair.sell.createdAt ? new Date(pair.sell.createdAt).getTime() : 0;
+          return Math.max(buyTime, sellTime);
+        };
+        return getPairTimestamp(b) - getPairTimestamp(a);
+      });
+
+      // 该日期的未配对交易，按交易时间排序（最新的在前）
+      const dateUnpairedTrades = tradesByDate[date]
+        .filter(t => !pairedBuyIds.has(t.id) && !pairedSellIds.has(t.id))
+        .sort((a, b) => {
+          const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return bTime - aTime;
+        });
+
+      rows.push({
+        date,
+        pairs: datePairs,
+        unpaired: dateUnpairedTrades,
+        summary: dateSummaries[date],
+        cumulative: cumulativeByDate[date]
+      });
+    });
+
+    return { rows, priceExtremes, positionStats, latestTradeId };
+  }
+
+  /**
+   * 计算部位统计（笔数、总数量、加权平均价）
+   * @param {Array} trades - 未配对交易数组
+   * @returns {Object} { count, totalQty, avgPrice }
+   */
+  calculatePositionStats(trades) {
+    const count = trades.length;
+    const totalQty = trades.reduce((sum, t) => sum + (parseInt(t.qty) || 0), 0);
+    const avgPrice = count > 0
+      ? (trades.reduce((sum, t) => sum + (parseFloat(t.price) || 0) * (parseInt(t.qty) || 0), 0) / totalQty).toFixed(2)
+      : null;
+    return { count, totalQty, avgPrice };
+  }
+
+  /**
+   * 生成历史数据弹窗内容
+   * @param {string} stockName - 股票名称
+   * @param {string} market - 市场
+   * @param {Array} historyData - 历史数据（保留参数，暂未使用）
+   * @param {Object} priceExtremes - 价格极值信息（保留参数，缺省时使用内部计算值）
+   * @param {string} filterDate - 筛选日期
+   * @returns {string} HTML内容
+   */
+  generateContent(stockName, market, historyData, priceExtremes, filterDate) {
+    const { rows, priceExtremes: computedPriceExtremes, positionStats, latestTradeId } =
+      this.buildHistoryRows(stockName, market, filterDate);
+    const extremes = priceExtremes || computedPriceExtremes;
+
     // 生成价格极值 HTML
     let priceExtremesHtml = '';
-    if (priceExtremes && (priceExtremes.buy.minPrice !== null || priceExtremes.buy.maxPrice !== null || priceExtremes.sell.minPrice !== null || priceExtremes.sell.maxPrice !== null)) {
-      // 计算多头和空头统计信息
-      const allUnpairedTrades = stockTrades.filter(t => !pairedBuyIds.has(t.id) && !pairedSellIds.has(t.id));
-      const unpairedBuys = allUnpairedTrades.filter(t => t.side === 'buy');
-      const unpairedSells = allUnpairedTrades.filter(t => t.side === 'sell');
-      
-      // 计算多头统计
-      const longCount = unpairedBuys.length;
-      const longTotalQty = unpairedBuys.reduce((sum, t) => sum + (parseInt(t.qty) || 0), 0);
-      const longAvgPrice = longCount > 0 ? (unpairedBuys.reduce((sum, t) => sum + (parseFloat(t.price) || 0) * (parseInt(t.qty) || 0), 0) / longTotalQty).toFixed(2) : null;
-      
-      // 计算空头统计
-      const shortCount = unpairedSells.length;
-      const shortTotalQty = unpairedSells.reduce((sum, t) => sum + (parseInt(t.qty) || 0), 0);
-      const shortAvgPrice = shortCount > 0 ? (unpairedSells.reduce((sum, t) => sum + (parseFloat(t.price) || 0) * (parseInt(t.qty) || 0), 0) / shortTotalQty).toFixed(2) : null;
+    if (extremes && (extremes.buy.minPrice !== null || extremes.buy.maxPrice !== null || extremes.sell.minPrice !== null || extremes.sell.maxPrice !== null)) {
+      const { long: longStats, short: shortStats } = positionStats;
       
       priceExtremesHtml = `
         <div class="stock-min-max-container">
-          ${priceExtremes.buy.maxPrice !== null && priceExtremes.buy.maxTrade ? `
+          ${extremes.buy.maxPrice !== null && extremes.buy.maxTrade ? `
             <div class="price-bubble">
-              <div class="price-date">${priceExtremes.buy.maxTrade.date.replace(/^(\d{2})(\d{2})-(\d{2})-(\d{2})$/, '$2-$3-$4')}</div>
-              <div class="price-value">${priceExtremes.buy.maxPrice}</div>
+              <div class="price-date">${extremes.buy.maxTrade.date.replace(/^(\d{2})(\d{2})-(\d{2})-(\d{2})$/, '$2-$3-$4')}</div>
+              <div class="price-value">${extremes.buy.maxPrice}</div>
             </div>
           ` : ''}
-          ${priceExtremes.buy.minPrice !== null && priceExtremes.buy.minTrade ? `
+          ${extremes.buy.minPrice !== null && extremes.buy.minTrade ? `
             <div class="price-bubble">
-              <div class="price-date">${priceExtremes.buy.minTrade.date.replace(/^(\d{2})(\d{2})-(\d{2})-(\d{2})$/, '$2-$3-$4')}</div>
-              <div class="price-value">${priceExtremes.buy.minPrice}</div>
+              <div class="price-date">${extremes.buy.minTrade.date.replace(/^(\d{2})(\d{2})-(\d{2})-(\d{2})$/, '$2-$3-$4')}</div>
+              <div class="price-value">${extremes.buy.minPrice}</div>
             </div>
           ` : ''}
-          ${priceExtremes.sell.maxPrice !== null && priceExtremes.sell.maxTrade ? `
+          ${extremes.sell.maxPrice !== null && extremes.sell.maxTrade ? `
             <div class="price-bubble sell">
-              <div class="price-date">${priceExtremes.sell.maxTrade.date.replace(/^(\d{2})(\d{2})-(\d{2})-(\d{2})$/, '$2-$3-$4')}</div>
-              <div class="price-value">-${priceExtremes.sell.maxPrice}</div>
+              <div class="price-date">${extremes.sell.maxTrade.date.replace(/^(\d{2})(\d{2})-(\d{2})-(\d{2})$/, '$2-$3-$4')}</div>
+              <div class="price-value">-${extremes.sell.maxPrice}</div>
             </div>
           ` : ''}
-          ${priceExtremes.sell.minPrice !== null && priceExtremes.sell.minTrade ? `
+          ${extremes.sell.minPrice !== null && extremes.sell.minTrade ? `
             <div class="price-bubble sell">
-              <div class="price-date">${priceExtremes.sell.minTrade.date.replace(/^(\d{2})(\d{2})-(\d{2})-(\d{2})$/, '$2-$3-$4')}</div>
-              <div class="price-value">-${priceExtremes.sell.minPrice}</div>
+              <div class="price-date">${extremes.sell.minTrade.date.replace(/^(\d{2})(\d{2})-(\d{2})-(\d{2})$/, '$2-$3-$4')}</div>
+              <div class="price-value">-${extremes.sell.minPrice}</div>
             </div>
           ` : ''}
           
@@ -417,16 +725,16 @@ class HistoryDataPlugin {
             <div class="position-stat-item long">
               <span class="position-label">多头部位</span>
               <div class="position-data">
-                <span class="position-value">${longCount}笔 / ${longTotalQty}股</span>
-                ${longAvgPrice ? `<span class="position-avg-price">平均股价：${longAvgPrice}</span>` : ''}
+                <span class="position-value">${longStats.count}笔 / ${longStats.totalQty}股</span>
+                ${longStats.avgPrice ? `<span class="position-avg-price">平均股价：${longStats.avgPrice}</span>` : ''}
               </div>
             </div>
             <div class="position-stat-divider"></div>
             <div class="position-stat-item short">
               <span class="position-label">空头部位</span>
               <div class="position-data">
-                <span class="position-value">${shortCount}笔 / ${shortTotalQty}股</span>
-                ${shortAvgPrice ? `<span class="position-avg-price">平均股价：${shortAvgPrice}</span>` : ''}
+                <span class="position-value">${shortStats.count}笔 / ${shortStats.totalQty}股</span>
+                ${shortStats.avgPrice ? `<span class="position-avg-price">平均股价：${shortStats.avgPrice}</span>` : ''}
               </div>
             </div>
           </div>
@@ -436,118 +744,17 @@ class HistoryDataPlugin {
     
     // 生成历史数据项
     let historyItemsHtml = '';
-    const dateSummaries = {};
-    sortedDates.forEach(date => {
-      const dateTrades = tradesByDate[date];
-      
-      // 检查该日期是否有交易数据
-      const hasTrades = HistoryDataModule.hasTradesForDate(tradesByDate, date, pairing, pairedBuyIds, pairedSellIds);
-      
-      // 如果没有交易数据，则跳过该日期
-      if (!hasTrades) {
-        return;
-      }
-      
-      // 找出该日期的配对
-      let datePairs = [];
-      if (pairing.pairedTrades) {
-        pairing.pairedTrades.forEach(pair => {
-          const pairDate = pair.buy.date > pair.sell.date ? pair.buy.date : pair.sell.date;
-          if (pairDate === date) {
-            datePairs.push(pair);
-          }
-        });
-      }
-      
-      dateSummaries[date] = this.calculateDateSummary(
-        stockName,
-        market,
-        date,
-        dateTrades,
-        datePairs,
-        pairedBuyIds,
-        pairedSellIds
-      );
-    });
+    rows.forEach(row => {
+      const { date, pairs: datePairs, unpaired: dateUnpairedTrades, summary: dateSummary, cumulative } = row;
 
-    let cumulativeBalance = 0;
-    let cumulativeQty = 0;
-    let cumulativeNetProfit = 0;
-    const cumulativeBalanceByDate = {};
-    const cumulativeQtyByDate = {};
-    const cumulativeNetProfitByDate = {};
-    for (let i = sortedDates.length - 1; i >= 0; i--) {
-      const date = sortedDates[i];
-      if (!dateSummaries[date]) {
-        continue;
-      }
-      cumulativeBalance += dateSummaries[date].netAmount + dateSummaries[date].totalPairedNetProfit;
-      cumulativeQty += dateSummaries[date].netQty;
-      cumulativeNetProfit += dateSummaries[date].totalPairedNetProfit;
-      cumulativeBalanceByDate[date] = cumulativeBalance;
-      cumulativeQtyByDate[date] = cumulativeQty;
-      cumulativeNetProfitByDate[date] = cumulativeNetProfit;
-    }
-
-    sortedDates.forEach(date => {
-      const dateTrades = tradesByDate[date];
-      
-      // 检查该日期是否有交易数据
-      const hasTrades = HistoryDataModule.hasTradesForDate(tradesByDate, date, pairing, pairedBuyIds, pairedSellIds);
-      
-      // 如果没有交易数据，则跳过该日期
-      if (!hasTrades) {
-        return;
-      }
-      
-      // 找出该日期的配对
-      let datePairs = [];
-      if (pairing.pairedTrades) {
-        pairing.pairedTrades.forEach(pair => {
-          const pairDate = pair.buy.date > pair.sell.date ? pair.buy.date : pair.sell.date;
-          if (pairDate === date) {
-            datePairs.push(pair);
-          }
-        });
-      }
-      
-      // 按交易时间排序配对交易（最新的在前）
-      datePairs.sort((a, b) => {
-        const getPairTimestamp = (pair) => {
-          const buyTime = pair.buy && pair.buy.createdAt ? new Date(pair.buy.createdAt).getTime() : 0;
-          const sellTime = pair.sell && pair.sell.createdAt ? new Date(pair.sell.createdAt).getTime() : 0;
-          return Math.max(buyTime, sellTime);
-        };
-        return getPairTimestamp(b) - getPairTimestamp(a);
-      });
-      
-      // 找出该日期的未配对交易
-      let dateUnpairedTrades = dateTrades.filter(t => !pairedBuyIds.has(t.id) && !pairedSellIds.has(t.id));
-      
-      // 按交易时间排序未配对交易（最新的在前）
-      dateUnpairedTrades.sort((a, b) => {
-        const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-        return bTime - aTime;
-      });
-      
-      // 生成日期容器HTML
-      const dateSummary = dateSummaries[date] || this.calculateDateSummary(
-        stockName,
-        market,
-        date,
-        dateTrades,
-        datePairs,
-        pairedBuyIds,
-        pairedSellIds
-      );
       const formattedDailyQty = `${dateSummary.netQty >= 0 ? '+' : '-'}${this.formatAmountNoDecimals(Math.abs(dateSummary.netQty || 0))}`;
       const formattedDailyAmount = `${dateSummary.netAmount >= 0 ? '+' : '-'}${this.formatAmountNoDecimals(Math.abs(dateSummary.netAmount || 0))}`;
       const formattedNetProfit = `${dateSummary.totalPairedNetProfit >= 0 ? '+' : '-'}${this.formatAmountNoDecimals(Math.abs(dateSummary.totalPairedNetProfit))}`;
-      const formattedCumulativeQty = `${cumulativeQtyByDate[date] >= 0 ? '+' : '-'}${this.formatAmountNoDecimals(Math.abs(cumulativeQtyByDate[date] || 0))}`;
-      const formattedCumulativeBalance = `${cumulativeBalanceByDate[date] >= 0 ? '+' : '-'}${this.formatAmountNoDecimals(Math.abs(cumulativeBalanceByDate[date] || 0))}`;
-      const formattedCumulativeNetProfit = `${cumulativeNetProfitByDate[date] >= 0 ? '+' : '-'}${this.formatAmountNoDecimals(Math.abs(cumulativeNetProfitByDate[date] || 0))}`;
-
+      const formattedCumulativeQty = `${cumulative.qty >= 0 ? '+' : '-'}${this.formatAmountNoDecimals(Math.abs(cumulative.qty || 0))}`;
+      const formattedCumulativeBalance = `${cumulative.balance >= 0 ? '+' : '-'}${this.formatAmountNoDecimals(Math.abs(cumulative.balance || 0))}`;
+      const formattedCumulativeNetProfit = `${cumulative.netProfit >= 0 ? '+' : '-'}${this.formatAmountNoDecimals(Math.abs(cumulative.netProfit || 0))}`;
+      
+      // 生成日期容器HTML
       let dateHtml = `
         <div class="history-data-item">
           <div class="history-data-date">${date}</div>
@@ -652,7 +859,10 @@ class HistoryDataPlugin {
         <div class="history-data-header" style="flex-shrink: 0;">
           <div class="history-data-title">${stockName}</div>
           <div class="history-data-market">${market}</div>
-          <button id="exportPdfBtn" class="export-pdf-btn" title="导出为PDF">📄 导出PDF</button>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <button id="exportPdfBtn" class="export-pdf-btn" title="导出为PDF">📄 导出PDF</button>
+            <button id="exportExcelBtn" class="export-excel-btn" title="导出为EXCEL">📊 导出EXCEL</button>
+          </div>
         </div>
         
         <div style="flex: 1; overflow: auto; min-width: 0;">

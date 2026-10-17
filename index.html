@@ -11,7 +11,9 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <link rel="manifest" href="manifest.json?v=20260416">
-    <link rel="apple-touch-icon" href="icons/icon-192.png?v=20260416">
+    <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180.png?v=20260926g">
+    <!-- favicon：分享面板预览 / 浏览器标签页用（此前缺失导致 iOS 显示默认指南针） -->
+    <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png?v=20260926g">
     <title>纯前端交易记录系统</title>
     <link rel="stylesheet" href="styles.css?v=20260430_1710">
     <link rel="stylesheet" href="components/FloatingWindow/FloatingWindow.css?v=20260416">
@@ -601,8 +603,10 @@ A50 22.1 -22.7 22.0
           } else {
             DebugAlert.error('objectData.js 未加载');
           }
-          
-          DebugAlert.show();
+
+          // 仅失败时弹窗（DebugAlert.error() 已立即弹出）；全部成功则静默，
+          // 讯息留在 console，避免每次启动都弹出调试讯息打扰。
+          console.log('[启动自检] 数据文件检查完成，累积讯息 ' + DebugAlert.getMessageCount() + ' 条');
         } else {
           let msg = '📊 数据加载测试：\n\n';
           
@@ -623,15 +627,20 @@ A50 22.1 -22.7 22.0
           } else {
             msg += '❌ objectData.js 未加载\n';
           }
-          
-          alert(msg);
+
+          // 只在有加载失败项时才弹窗，正常启动保持静默
+          if (msg.indexOf('❌') !== -1) {
+            alert(msg);
+          } else {
+            console.log('[启动自检] 数据文件全部加载成功');
+          }
         }
       }, 100);
     </script>
     <script src="modules/historyDataModule.js?v=20260416"></script>
-    <script src="modules/historyDataPlugin.js?v=20260416"></script>
+    <script src="modules/historyDataPlugin.js?v=20261017"></script>
     <script src="modules/index.js?v=20260416"></script>
-    <link rel="stylesheet" href="compactModePlugin.css?v=20260416">
+    <link rel="stylesheet" href="compactModePlugin.css?v=20261017">
     <script src="pairingsViewer.js?v=20260416"></script>
     <script src="bubbleDetail.js?v=20260416"></script>
     <script src="json-manager.js?v=20260416"></script>
@@ -813,6 +822,8 @@ A50 22.1 -22.7 22.0
     <!-- 引入 PDF 导出库 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <!-- 引入 Excel 导出库 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script>
       // PWA 更新提示逻辑 - 只在HTTPS环境下启用
       let newWorker = null;
@@ -829,7 +840,8 @@ A50 22.1 -22.7 22.0
       if (supportsPWA) {
         // 完整PWA模式
         window.addEventListener('load', () => {
-          navigator.serviceWorker.register('./sw.js')
+          // 使用相對路徑（基於 baseURI），避免部署在子目錄時 './sw.js' 404
+        navigator.serviceWorker.register(new URL('./sw.js', document.baseURI).href)
             .then(reg => {
               console.log('[PWA] Service Worker 注册成功:', reg.scope);
 

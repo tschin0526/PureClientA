@@ -979,6 +979,39 @@
   transform: none;
 }
 
+.export-excel-btn {
+  padding: 6px 14px;
+  background: linear-gradient(135deg, #1a9e56 0%, #157347 100%);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 6px rgba(21, 115, 71, 0.3);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.export-excel-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(21, 115, 71, 0.4);
+  background: linear-gradient(135deg, #178a4b 0%, #0f5c37 100%);
+}
+
+.export-excel-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 4px rgba(21, 115, 71, 0.3);
+}
+
+.export-excel-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+  transform: none;
+}
+
 .stock-min-max-container {
   display: flex;
   flex-wrap: wrap;
