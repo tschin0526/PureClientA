@@ -73,11 +73,11 @@ class HistoryDataPlugin {
       });
     }
 
-    // 绑定导出 EXCEL 按钮
+    // 绑定导出 EXCEL 按钮 → 先弹收件人选择浮层
     const exportExcelBtn = popupElement.querySelector('#exportExcelBtn');
     if (exportExcelBtn) {
       exportExcelBtn.addEventListener('click', () => {
-        this.exportToExcel(stockName, market);
+        this.openEmailRecipientDialog(stockName, market);
       });
     }
     
@@ -348,11 +348,126 @@ class HistoryDataPlugin {
   }
 
   /**
+   * 打开发件人选择浮层：支持从常用清单下拉选择或手动输入收件人邮箱，确认后导出 Excel 并发送邮件。
+   * 常用清单来自公用邮件服务 GET http://localhost:5003/recipients（data/email-recipients.json）。
+   */
+  async openEmailRecipientDialog(stockName, market) {
+    try {
+    // 避免重复打开
+    if (document.getElementById('hdEmailOverlay')) return;
+
+    const overlay = document.createElement('div');
+    overlay.id = 'hdEmailOverlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:2147483647;display:flex;align-items:center;justify-content:center;';
+    overlay.innerHTML = `
+      <div id="hdEmailBox" style="background:#fff;border-radius:12px;padding:20px 24px;width:360px;box-shadow:0 8px 32px rgba(0,0,0,0.3);">
+        <div style="font-size:16px;font-weight:600;color:#1e293b;margin-bottom:6px;">📧 导出 Excel 并发邮件</div>
+        <div style="font-size:12px;color:#64748b;margin-bottom:14px;">股票：${stockName}（${market}）</div>
+        <label style="display:block;font-size:13px;color:#334155;margin-bottom:6px;">收件人邮箱</label>
+        <div style="position:relative;">
+          <input id="hdEmailInput" type="text" placeholder="输入或选择收件人邮箱…" autocomplete="off"
+            style="width:100%;padding:10px 12px;border:1px solid #cbd5e1;border-radius:8px;font-size:14px;box-sizing:border-box;outline:none;" />
+          <div id="hdEmailDropdown" style="position:absolute;top:calc(100% + 4px);left:0;right:0;background:#fff;border:1px solid #e2e8f0;border-radius:8px;max-height:200px;overflow-y:auto;display:none;z-index:1;box-shadow:0 4px 12px rgba(0,0,0,0.1);"></div>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:16px;justify-content:flex-end;">
+          <button id="hdEmailCancel" style="padding:8px 16px;border:1px solid #cbd5e1;background:#fff;border-radius:8px;cursor:pointer;font-size:13px;">取消</button>
+          <button id="hdEmailSend" style="padding:8px 16px;border:none;background:#3b82f6;color:#fff;border-radius:8px;cursor:pointer;font-size:13px;">发送</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+
+    const input = overlay.querySelector('#hdEmailInput');
+    const dropdown = overlay.querySelector('#hdEmailDropdown');
+    const sendBtn = overlay.querySelector('#hdEmailSend');
+    const cancelBtn = overlay.querySelector('#hdEmailCancel');
+    const box = overlay.querySelector('#hdEmailBox');
+
+    let allRecipients = [];
+    try {
+      const resp = await fetch('http://localhost:5003/recipients');
+      const data = await resp.json();
+      allRecipients = Array.isArray(data) ? data : [];
+    } catch (e) { console.warn('加载收件人清单失败:', e); }
+
+    const renderDropdown = () => {
+      const raw = input.value || '';
+      const parts = raw.split(/[,，;]/);
+      const token = (parts[parts.length - 1] || '').trim().toLowerCase();
+      const match = (email) => {
+        const e = email.toLowerCase();
+        if (!token) return true;
+        if (e.startsWith(token)) return true;
+        if ((e.split('@')[0] || '').startsWith(token)) return true;
+        if (token.length >= 2) {
+          const words = e.split(/[@.\-_]+/);
+          if (words.some(w => w.startsWith(token))) return true;
+        }
+        return false;
+      };
+      const items = token ? allRecipients.filter(match) : allRecipients.slice();
+      dropdown.innerHTML = '';
+      if (!items.length) {
+        dropdown.innerHTML = '<div style="padding:10px 12px;color:#94a3b8;font-size:13px;">' + (allRecipients.length ? '无匹配收件人' : '暂无常用收件人，可直接输入邮箱') + '</div>';
+      } else {
+        items.forEach(email => {
+          const div = document.createElement('div');
+          div.style.cssText = 'padding:8px 12px;cursor:pointer;font-size:13px;color:#334155;';
+          div.textContent = email;
+          div.addEventListener('mouseenter', () => div.style.background = '#f1f5f9');
+          div.addEventListener('mouseleave', () => div.style.background = '');
+          div.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            input.value = email;
+            dropdown.style.display = 'none';
+            input.focus();
+          });
+          dropdown.appendChild(div);
+        });
+      }
+      dropdown.style.display = items.length || allRecipients.length ? 'block' : 'none';
+    };
+
+    input.addEventListener('input', renderDropdown);
+    input.addEventListener('focus', renderDropdown);
+    input.addEventListener('blur', () => setTimeout(() => { dropdown.style.display = 'none'; }, 150));
+
+    const close = () => { overlay.remove(); };
+    const send = async () => {
+      const recipient = (input.value || '').trim();
+      if (!recipient) { input.focus(); return; }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) {
+        alert('收件人邮箱格式不正确');
+        input.focus();
+        return;
+      }
+      sendBtn.disabled = true;
+      sendBtn.textContent = '发送中…';
+      overlay.remove();
+      await this.doExportAndSendEmail(stockName, market, recipient);
+    };
+
+    sendBtn.addEventListener('click', send);
+    cancelBtn.addEventListener('click', close);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); send(); }
+      else if (e.key === 'Escape') { e.preventDefault(); close(); }
+    });
+
+    input.focus();
+    renderDropdown();
+    } catch (err) {
+      console.error('打开收件人浮层失败:', err);
+      alert('打开收件人浮层失败: ' + (err && err.message ? err.message : err));
+    }
+  }
+
+  /**
    * 导出历史数据为 Excel 文件（.xlsx，含「汇总」与「历史明细」两个工作表，数值列可在 Excel 中直接计算）
    * @param {string} stockName - 股票名称
    * @param {string} market - 市场
    */
-  exportToExcel(stockName, market) {
+  async doExportAndSendEmail(stockName, market, recipient) {
     const popupElement = this.floatingWindow ? this.floatingWindow.getElement() : null;
     const exportBtn = popupElement ? popupElement.querySelector('#exportExcelBtn') : null;
     const originalText = exportBtn ? exportBtn.innerHTML : '';
@@ -505,12 +620,56 @@ class HistoryDataPlugin {
       }
 
       console.log(`Excel 导出成功（共 ${flatItems.length} 笔交易）: ${fileName}`);
+
+      // ===== 发送邮件（附带 Excel 附件，复用公用邮件服务）=====
+      try {
+        const excelArray = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+        const excelBlob = new Blob([excelArray], {
+          type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        });
+
+        const formData = new FormData();
+        formData.append('receiver_email', recipient);
+        formData.append('subject', `${stockName} 历史数据 - ${dateStr}`);
+        formData.append('body',
+          `股票：${stockName}（${market}）\n` +
+          `导出时间：${new Date().toLocaleString('zh-CN')}\n` +
+          `交易笔数：${flatItems.length}\n\n` +
+          `附件为历史数据 Excel 文件（含历史明细与汇总两个工作表）。`
+        );
+        formData.append('attachments', excelBlob, fileName);
+
+        const emailResponse = await fetch('http://localhost:5003/send_email', {
+          method: 'POST',
+          body: formData
+        });
+        const emailResult = await emailResponse.json();
+
+        if (emailResult.status === 'success') {
+          console.log('邮件发送成功:', emailResult);
+          // 将本次收件人追加到常用清单（与 electron-crawler 共用 data/email-recipients.json）
+          try {
+            await fetch('http://localhost:5003/recipients/add', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ recipients: [recipient] })
+            });
+          } catch (e) { console.warn('追加收件人清单失败:', e); }
+          alert(`Excel 导出成功，邮件已发送！\n收件人：${recipient}\n共 ${flatItems.length} 笔交易`);
+        } else {
+          console.warn('邮件发送失败:', emailResult);
+          alert(`Excel 已导出，但邮件发送失败：${emailResult.message || '未知错误'}`);
+        }
+      } catch (emailError) {
+        console.error('邮件发送异常:', emailError);
+        alert(`Excel 已导出，但邮件发送失败：${emailError.message}`);
+      }
     } catch (error) {
       console.error('Excel 导出失败:', error);
 
       // 恢复按钮状态
       if (exportBtn) {
-        exportBtn.innerHTML = originalText || '📊 导出EXCEL';
+        exportBtn.innerHTML = originalText || '📊 导出EXCEL&发邮件';
         exportBtn.disabled = false;
       }
 
@@ -861,7 +1020,7 @@ class HistoryDataPlugin {
           <div class="history-data-market">${market}</div>
           <div style="display: flex; gap: 8px; align-items: center;">
             <button id="exportPdfBtn" class="export-pdf-btn" title="导出为PDF">📄 导出PDF</button>
-            <button id="exportExcelBtn" class="export-excel-btn" title="导出为EXCEL">📊 导出EXCEL</button>
+            <button id="exportExcelBtn" class="export-excel-btn" title="导出EXCEL并发送邮件">📊 导出EXCEL&发邮件</button>
           </div>
         </div>
         
