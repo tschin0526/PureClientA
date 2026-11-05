@@ -3,6 +3,36 @@
 // 全局浮动窗口实例
 let tradeDetailWindow = null;
 
+function showTemporaryMessage(message) {
+  const existing = document.getElementById('temporaryTradeMessage');
+  if (existing) existing.remove();
+
+  const messageElement = document.createElement('div');
+  messageElement.id = 'temporaryTradeMessage';
+  messageElement.textContent = message;
+  messageElement.style.cssText = [
+    'position: fixed',
+    'left: 50%',
+    'top: 50%',
+    'transform: translate(-50%, -50%)',
+    'padding: 18px 28px',
+    'border-radius: 8px',
+    'background: rgba(0, 0, 0, 0.78)',
+    'color: #fff',
+    'font-size: 16px',
+    'z-index: 2147483647',
+    'pointer-events: none',
+    'text-align: center',
+    'white-space: pre-line'
+  ].join(';');
+  document.body.appendChild(messageElement);
+
+  setTimeout(() => {
+    messageElement.remove();
+  }, 1500);
+}
+window.showTemporaryMessage = showTemporaryMessage;
+
 // 显示交易详情
 function showTradeDetail(trade, source = 'main') {
   // 使用DebugUtils显示调试信息
@@ -298,7 +328,8 @@ function showTradeDetail(trade, source = 'main') {
                   compactWin.setContent(content);
                   window.compactModePlugin.bindEvents();
                   window.compactModePlugin.applyBubbleScale();
-                  
+                  window.compactModePlugin.scrollToStock(trade.stock);
+
                   if (window.DebugUtils) {
                     DebugUtils.showDebugInfo('已刷新紧凑模式视图');
                   }
@@ -317,6 +348,9 @@ function showTradeDetail(trade, source = 'main') {
             if (window.jumpToStock && trade.stock) {
               window.jumpToStock(trade.stock);
             }
+            if (window.compactModePlugin && trade.stock) {
+              window.compactModePlugin.scrollToStock(trade.stock);
+            }
           }, 200);
           
           // 刷新买卖建议插件窗口（只有当调用来源是 advice 时才刷新）
@@ -334,7 +368,7 @@ function showTradeDetail(trade, source = 'main') {
             tradeDetailWindow = null;
           }
           
-          alert('交易已删除');
+          showTemporaryMessage('交易已删除');
         } catch (error) {
           if (window.DebugUtils) {
             DebugUtils.showDebugInfo(`删除交易失败: ${error.message}`);
@@ -701,6 +735,7 @@ function showTradeDetail(trade, source = 'main') {
                 compactWin.setContent(content);
                 window.compactModePlugin.bindEvents();
                 window.compactModePlugin.applyBubbleScale();
+                window.compactModePlugin.scrollToStock(trade.stock);
 
                 if (window.DebugUtils) {
                   DebugUtils.showDebugInfo('已刷新紧凑模式视图');
@@ -738,7 +773,7 @@ function showTradeDetail(trade, source = 'main') {
         }
         
         // 显示修改成功提示
-        alert('交易已修改');
+        showTemporaryMessage('交易已修改');
       } catch (error) {
         if (window.DebugUtils) {
           DebugUtils.showDebugInfo(`修改交易失败: ${error.message}`);

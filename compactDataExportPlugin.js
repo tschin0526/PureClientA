@@ -115,6 +115,23 @@ class CompactModePlugin {
     }, 100);
   }
 
+  showTemporaryMessage(message) {
+    if (typeof window.showTemporaryMessage === 'function') {
+      window.showTemporaryMessage(message);
+      return;
+    }
+
+    const existing = document.getElementById('temporaryTradeMessage');
+    if (existing) existing.remove();
+
+    const messageElement = document.createElement('div');
+    messageElement.id = 'temporaryTradeMessage';
+    messageElement.textContent = message;
+    messageElement.style.cssText = 'position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 18px 28px; border-radius: 8px; background: rgba(0, 0, 0, 0.78); color: #fff; font-size: 16px; z-index: 2147483647; pointer-events: none; text-align: center; white-space: pre-line;';
+    document.body.appendChild(messageElement);
+    setTimeout(() => messageElement.remove(), 1500);
+  }
+
   isSpecialQty(trade, stockName) {
     try {
       if (!trade || !stockName) return false;
@@ -2380,30 +2397,19 @@ class CompactModePlugin {
                       this.applyBubbleScale();
                     }
                     
-                    // 滚动到对应的股票卡片位置
-                    const newContentEl = this.floatingWindow.getElement().querySelector('.compact-mode-content');
-                    if (newContentEl) {
-                      const targetCard = newContentEl.querySelector(`.compact-stock-card[data-stock-name="${stockName}"]`);
-                      if (targetCard) {
-                        setTimeout(() => {
-                          targetCard.scrollIntoView({
-                            behavior: 'smooth',
-                            block: 'center',
-                            inline: 'nearest'
-                          });
-                        }, 100);
-                      }
-                    }
+                    // 滚动到新增交易所属的股票卡片位置
+                    this.scrollToStock(stockName);
                     
                     // 延迟显示成功提示和重新聚焦，让滚动先完成
                     setTimeout(() => {
-                    alert(`交易新增成功！\n股票：${stockName}\n价格：${isSell ? '-' : ''}${price}`);
+                    this.showTemporaryMessage(`交易新增成功！\n股票：${stockName}\n价格：${isSell ? '-' : ''}${price}`);
                     
                     const newPriceInput = this.floatingWindow.getElement().querySelector(`.smart-add-price[data-market="${sourceMarket}"]`);
                     if (newPriceInput) {
                       newPriceInput.value = '';
-                      newPriceInput.focus();
+                      newPriceInput.focus({ preventScroll: true });
                     }
+                    this.scrollToStock(stockName);
                   }, 350);
                   } else {
                     this.speakErrorAndAlert('交易数据库未初始化');
@@ -2857,7 +2863,7 @@ class CompactModePlugin {
               this.applyBubbleScale();
               
               // 恢复滚动位置
-              const newContentEl = winEl.querySelector('.compact-mode-content');
+              const newContentEl = this.floatingWindow.getElement().querySelector('.compact-mode-content');
               if (newContentEl) {
                 newContentEl.scrollTop = scrollPosition;
               }
@@ -2889,11 +2895,8 @@ class CompactModePlugin {
               this.bindEvents();
               this.applyBubbleScale();
               
-              // 恢复滚动位置
-              const newContentEl = winEl.querySelector('.compact-mode-content');
-              if (newContentEl) {
-                newContentEl.scrollTop = scrollPosition;
-              }
+              // 定位到新增交易所属的股票卡片
+              this.scrollToStock(stockName);
             }
           }
           // 重置下拉选择
@@ -3617,10 +3620,6 @@ class CompactModePlugin {
           try {
             // 保存交易记录（假设tradesDB存在）
             if (window.tradesDB && window.tradesDB.save) {
-              // 保存滚动位置
-              const contentEl = winEl.querySelector('.compact-mode-content');
-              const scrollPosition = contentEl ? contentEl.scrollTop : 0;
-              
               await window.tradesDB.save(newTrade);
               
               // 重新加载交易数据
@@ -3643,11 +3642,8 @@ class CompactModePlugin {
                 this.bindEvents();
                 this.applyBubbleScale();
                 
-                // 恢复滚动位置
-                const newContentEl = winEl.querySelector('.compact-mode-content');
-                if (newContentEl) {
-                  newContentEl.scrollTop = scrollPosition;
-                }
+                // 定位到新增交易所属的股票卡片
+                this.scrollToStock(stockName);
               }
               
               // 隐藏快速添加容器
@@ -3657,7 +3653,7 @@ class CompactModePlugin {
               }
               priceInput.value = '';
               
-              alert('交易新增成功！');
+              this.showTemporaryMessage('交易新增成功！');
             } else {
               this.speakErrorAndAlert('交易数据库未初始化');
             }
@@ -4765,6 +4761,38 @@ class CompactModePlugin {
       }
       grid.style.gridTemplateColumns = `repeat(auto-fill, minmax(${minWidth}px, 1fr))`;
     });
+  }
+
+  scrollToStock(stockName) {
+    if (!stockName || !this.floatingWindow) return false;
+
+    const winEl = this.floatingWindow.getElement();
+    const contentEl = winEl ? winEl.querySelector('.compact-mode-content') : null;
+    if (!contentEl) return false;
+
+    const targetCard = Array.from(contentEl.querySelectorAll('.compact-stock-card'))
+      .find(card => card.dataset.stockName === stockName);
+    if (!targetCard) return false;
+
+    const scrollToCard = () => {
+      const contentRect = contentEl.getBoundingClientRect();
+      const cardRect = targetCard.getBoundingClientRect();
+      const targetScrollTop = contentEl.scrollTop
+        + cardRect.top
+        - contentRect.top
+        - (contentEl.clientHeight - targetCard.offsetHeight) / 2;
+      const maxScrollTop = Math.max(0, contentEl.scrollHeight - contentEl.clientHeight);
+
+      contentEl.scrollTo({
+        top: Math.max(0, Math.min(targetScrollTop, maxScrollTop)),
+        behavior: 'smooth'
+      });
+    };
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(scrollToCard);
+    });
+    return true;
   }
 
   updateScaleDisplay() {
