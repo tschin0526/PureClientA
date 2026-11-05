@@ -142,6 +142,7 @@ function showTradeDetail(trade, source = 'main') {
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
           <div style="display: flex; gap: 10px;">
             <button id="editTradeBtn" style="padding: 10px 20px; background: #ffc107; color: #212529; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">修改</button>
+            ${source === 'compact' ? '<button id="splitTradeBtn" style="padding: 10px 20px; background: #0d6efd; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">拆分气泡</button>' : ''}
             <button id="deleteTradeBtn" style="padding: 10px 20px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">删除此交易</button>
           </div>
         </div>
@@ -230,6 +231,92 @@ function showTradeDetail(trade, source = 'main') {
     floatingBody.querySelector('#editTradeBtn').addEventListener('click', () => {
       createEditMode();
     });
+
+    const splitTradeButton = floatingBody.querySelector('#splitTradeBtn');
+    if (splitTradeButton) {
+      splitTradeButton.addEventListener('click', async () => {
+        const originalQty = Number(trade.qty);
+        if (!Number.isInteger(originalQty) || originalQty <= 1) {
+          alert('交易数量必须大于 1 才能拆分');
+          return;
+        }
+
+        const firstQtyInput = prompt(`请输入第一个气泡数量（1-${originalQty - 1}）：`, String(Math.floor(originalQty / 2)));
+        if (firstQtyInput === null) return;
+
+        const firstQty = Number(firstQtyInput.trim());
+        const secondQty = originalQty - firstQty;
+        if (!Number.isInteger(firstQty) || firstQty <= 0 || secondQty <= 0) {
+          alert(`拆分数量必须是 1 到 ${originalQty - 1} 之间的整数，且两笔数量合计必须等于 ${originalQty}`);
+          return;
+        }
+
+        if (!confirm(`确定将 ${originalQty} 拆分为 ${firstQty} 和 ${secondQty} 两个气泡吗？`)) {
+          return;
+        }
+
+        if (!window.tradesDB || typeof window.tradesDB.save !== 'function') {
+          alert('交易数据库不可用，无法拆分气泡');
+          return;
+        }
+
+        const originalTrade = { ...trade };
+        const firstTrade = {
+          ...trade,
+          qty: firstQty,
+          amount: Number((Number(trade.price || 0) * firstQty).toFixed(2))
+        };
+        const secondTrade = {
+          ...trade,
+          id: `${trade.id}-split-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          qty: secondQty,
+          amount: Number((Number(trade.price || 0) * secondQty).toFixed(2))
+        };
+
+        splitTradeButton.disabled = true;
+        try {
+          if (typeof window.tradesDB.saveAll === 'function') {
+            await window.tradesDB.saveAll([firstTrade, secondTrade]);
+          } else {
+            await window.tradesDB.save(firstTrade);
+            await window.tradesDB.save(secondTrade);
+          }
+
+          if (window.loadTrades) await window.loadTrades();
+          if (window.applyFilters) await window.applyFilters();
+          if (window.renderBubbleView) window.renderBubbleView();
+
+          if (window.compactModePlugin && window.compactModePlugin.floatingWindow) {
+            const compactWin = window.compactModePlugin.floatingWindow;
+            const compactWinElement = compactWin.getElement();
+            const filterDateInput = document.getElementById('filterDate');
+            const filterDate = filterDateInput ? filterDateInput.value.trim() : '';
+            if (compactWinElement && compactWinElement.style.display !== 'none' && filterDate) {
+              const data = window.compactModePlugin.collectData(filterDate);
+              compactWin.setContent(window.compactModePlugin.renderCompactView(data, filterDate));
+              window.compactModePlugin.bindEvents();
+              window.compactModePlugin.applyBubbleScale();
+              window.compactModePlugin.scrollToStock(trade.stock);
+            }
+          }
+
+          if (tradeDetailWindow) {
+            tradeDetailWindow.destroy();
+            tradeDetailWindow = null;
+          }
+          showTemporaryMessage(`气泡已拆分：${firstQty} + ${secondQty} = ${originalQty}`);
+        } catch (error) {
+          try {
+            await window.tradesDB.save(originalTrade);
+          } catch (rollbackError) {
+            console.error('拆分失败后恢复原交易失败:', rollbackError);
+          }
+          console.error('拆分气泡失败:', error);
+          alert('拆分气泡失败: ' + error.message);
+          splitTradeButton.disabled = false;
+        }
+      });
+    }
     
     // 删除按钮
     floatingBody.querySelector('#deleteTradeBtn').addEventListener('click', async () => {

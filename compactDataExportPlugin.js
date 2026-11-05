@@ -417,6 +417,33 @@ class CompactModePlugin {
     return `${year}-${month}-${day}`;
   }
 
+  navigateDate(offset) {
+    const filterDateInput = document.getElementById('filterDate');
+    const currentDate = filterDateInput ? filterDateInput.value.trim() : '';
+    if (!currentDate) return;
+
+    const [year, month, day] = currentDate.split('-').map(Number);
+    const date = new Date(year, month - 1, day);
+    if (Number.isNaN(date.getTime())) return;
+
+    date.setDate(date.getDate() + offset);
+    const nextDate = [
+      date.getFullYear(),
+      String(date.getMonth() + 1).padStart(2, '0'),
+      String(date.getDate()).padStart(2, '0')
+    ].join('-');
+
+    if (filterDateInput) {
+      filterDateInput.value = nextDate;
+      filterDateInput.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    const data = this.collectData(nextDate);
+    this.floatingWindow.setContent(this.renderCompactView(data, nextDate));
+    this.bindEvents();
+    this.applyBubbleScale();
+  }
+
   collectData(filterDate) {
     const trades = window.trades || [];
     const pairingCache = window.pairingCache || {};
@@ -849,7 +876,11 @@ class CompactModePlugin {
     return `
       <div class="compact-mode-container">
         <div class="compact-mode-header">
-          <div class="compact-mode-title">${filterDate}</div>
+          <div class="compact-mode-title" style="display: flex; align-items: center; gap: 6px;">
+            <span>${filterDate}</span>
+            <button id="prevDateBtn" title="前一日" aria-label="前一日" style="padding: 0 8px; border: 1px solid #93c5fd; border-radius: 4px; background: #dbeafe; color: #1d4ed8; font-size: 18px; line-height: 22px; cursor: pointer;">&lt;</button>
+            <button id="nextDateBtn" title="后一日" aria-label="后一日" style="padding: 0 8px; border: 1px solid #93c5fd; border-radius: 4px; background: #dbeafe; color: #1d4ed8; font-size: 18px; line-height: 22px; cursor: pointer;">&gt;</button>
+          </div>
           <div style="display: flex; align-items: center; gap: 8px;">
             <div class="compact-mode-date">${visibleStocks.length} 档股票</div>
             ${this.hiddenStocks.size > 0 ? `
@@ -1812,6 +1843,15 @@ class CompactModePlugin {
       
       const winEl = this.floatingWindow.getElement();
       if (!winEl) return;
+
+      const prevDateButton = winEl.querySelector('#prevDateBtn');
+      if (prevDateButton) {
+        prevDateButton.addEventListener('click', () => this.navigateDate(-1));
+      }
+      const nextDateButton = winEl.querySelector('#nextDateBtn');
+      if (nextDateButton) {
+        nextDateButton.addEventListener('click', () => this.navigateDate(1));
+      }
       
       // 应用最高/最低单价气泡闪烁效果
       this.applyPriceBlinkEffect(winEl);
