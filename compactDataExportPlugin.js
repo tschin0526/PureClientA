@@ -1072,6 +1072,21 @@ class CompactModePlugin {
       })
       .sort((a, b) => b._ts - a._ts);
 
+    const totalBuyAmount = trades.reduce((total, trade) => {
+      return trade.side === 'buy'
+        ? total + Number(trade.price || 0) * Number(trade.qty || 0)
+        : total;
+    }, 0);
+    const totalSellAmount = trades.reduce((total, trade) => {
+      return trade.side === 'sell'
+        ? total + Number(trade.price || 0) * Number(trade.qty || 0)
+        : total;
+    }, 0);
+    const formatAmount = amount => amount.toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
+
     const rowsHtml = trades.map((t, idx) => {
       const isBuy = t.side === 'buy';
       const timeStr = t._ts ? new Date(t._ts).toTimeString().slice(0, 8) : '-';
@@ -1114,6 +1129,10 @@ class CompactModePlugin {
             </thead>
             <tbody>${trades.length > 0 ? rowsHtml : emptyHtml}</tbody>
           </table>
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 20px; margin-top: 10px; padding: 8px 10px; border: 1px solid #e5e7eb; border-radius: 6px; background: #f9fafb; font-size: 13px; font-weight: bold;">
+          <span style="color: #ef4444;">买入金额：${formatAmount(totalBuyAmount)}</span>
+          <span style="color: #22c55e;">卖出金额：${formatAmount(totalSellAmount)}</span>
         </div>
       </div>
     `;
